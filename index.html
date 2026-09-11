@@ -31,13 +31,27 @@
     <section id="entryView" class="view">
       <div class="info-box">
         <strong>画像はアプリ内に保存しません。</strong>
-        <p>この段階ではOCR前のテストデータを使います。登録後に残るのは日付・店舗・商品名・税込金額・カテゴリなどの文字データだけです。</p>
+        <p>撮影画像はOCR処理中だけ一時的に使い、登録後もIndexedDBには残しません。OCRはiPhone上で実行します。</p>
       </div>
 
-      <div class="toolbar">
-        <button id="loadSampleBtn" type="button" class="button secondary">テストレシートを読み込む</button>
+      <div class="toolbar receipt-actions-toolbar">
+        <button id="cameraBtn" type="button" class="button primary">レシートを撮影</button>
+        <button id="photoBtn" type="button" class="button secondary">写真から読み込む</button>
         <button id="clearDraftBtn" type="button" class="button ghost" disabled>入力をクリア</button>
       </div>
+      <input id="receiptCameraInput" type="file" accept="image/*" capture="environment" hidden />
+      <input id="receiptPhotoInput" type="file" accept="image/*" hidden />
+
+      <section id="ocrPanel" class="ocr-panel hidden" aria-live="polite">
+        <div class="ocr-status-row">
+          <strong id="ocrStatusText">OCR準備中…</strong>
+          <span id="ocrPercent">0%</span>
+        </div>
+        <progress id="ocrProgress" max="1" value="0"></progress>
+        <p class="muted small">初回は日本語OCRデータの読み込みに少し時間がかかります。画像そのものは外部へ送信しません。</p>
+      </section>
+
+      <section id="ocrWarningBox" class="ocr-warning hidden"></section>
 
       <section id="receiptMeta" class="receipt-meta hidden" aria-label="レシート情報">
         <div class="field-grid">
@@ -53,11 +67,25 @@
       </section>
 
       <div id="itemList" class="item-list" aria-live="polite"></div>
+      <button id="addItemBtn" type="button" class="button secondary add-item-button hidden">＋ 商品を追加</button>
 
-      <section id="totalCard" class="total-card hidden">
-        <span class="total-label">税込・実支払額</span>
-        <strong id="receiptTotal" class="money total-money">¥0</strong>
+      <section id="totalCard" class="total-card total-card-editable hidden">
+        <label class="total-edit-field" for="receiptTotal">
+          <span class="total-label">税込・実支払額</span>
+          <input id="receiptTotal" class="money total-input" type="number" min="0" step="1" inputmode="numeric" />
+        </label>
+        <p id="totalCheck" class="total-check"></p>
       </section>
+
+      <details id="ocrDebug" class="ocr-debug hidden">
+        <summary>OCR原文を確認（保存されません）</summary>
+        <pre id="ocrRawText"></pre>
+      </details>
+
+      <details class="dev-tools">
+        <summary>開発用</summary>
+        <button id="loadSampleBtn" type="button" class="button ghost">テストレシートを読み込む</button>
+      </details>
 
       <button id="registerBtn" type="button" class="button primary register-button hidden">この内容で登録</button>
       <div id="entryMessage" class="message hidden" aria-live="polite"></div>
@@ -96,6 +124,15 @@
 
     <section id="settingsView" class="view hidden">
       <section class="settings-card">
+        <h2>アプリ更新</h2>
+        <dl class="settings-list">
+          <div><dt>現在のバージョン</dt><dd id="appVersion">v1.3.0</dd></div>
+        </dl>
+        <button id="updateAppBtn" type="button" class="button secondary settings-wide-button">最新版を確認・更新</button>
+        <p id="updateStatus" class="muted small">今後はここから最新版へ更新できます。</p>
+      </section>
+
+      <section class="settings-card">
         <h2>保存について</h2>
         <dl class="settings-list">
           <div><dt>保存先</dt><dd>この端末のIndexedDB</dd></div>
@@ -115,8 +152,8 @@
       </section>
 
       <section class="settings-card">
-        <h2>次工程</h2>
-        <p class="muted">次は撮影 → OCR → 自動分類を接続します。Excelは月次集計から出力できます。</p>
+        <h2>OCRについて</h2>
+        <p class="muted">v1.3は端末内OCRの試験版です。撮影条件やレシート書式によって誤読があります。ピンクの「要確認」と金額合計を確認してから登録してください。</p>
       </section>
       <div id="settingsMessage" class="message hidden" aria-live="polite"></div>
     </section>

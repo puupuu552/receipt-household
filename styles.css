@@ -141,3 +141,38 @@ input[type="month"]::-webkit-date-and-time-value {
   .receipt-row { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
   .receipt-actions { align-items: center; }
 }
+
+/* v1.3 OCR / update UI */
+.receipt-actions-toolbar .button { flex: 1 1 150px; }
+.ocr-panel { margin: 12px 0; border: 1px solid var(--border); background: var(--card); border-radius: 14px; padding: 13px; }
+.ocr-status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.ocr-panel progress { width: 100%; height: 10px; margin-top: 9px; accent-color: var(--green); }
+.ocr-warning { margin: 12px 0; border: 1px solid var(--pink-border); background: var(--pink); border-radius: 14px; padding: 12px 13px; color: var(--pink-strong); font-size: 13px; line-height: 1.5; }
+.ocr-warning ul { margin: 7px 0 0; padding-left: 20px; }
+.ocr-warning li + li { margin-top: 4px; }
+.add-item-button { width: 100%; margin-top: 10px; }
+.amount-field input { font-weight: 900; color: #111; }
+.item-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 11px; }
+.review-ok-button, .item-remove-button { min-height: 38px; border-radius: 10px; padding: 6px 10px; font-size: 12px; font-weight: 900; }
+.review-ok-button { border: 1px solid var(--green); background: var(--green); color: #fff; }
+.item-remove-button { margin-left: auto; border: 1px solid #e9bdc4; background: var(--danger-bg); color: var(--danger); }
+.total-card-editable { display: block; }
+.total-edit-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.total-edit-field > span { flex: 1 1 auto; }
+.total-input { flex: 0 1 170px; width: min(170px, 48%); min-width: 0; text-align: right; font-size: clamp(24px, 7vw, 34px); border: 0; background: transparent; padding: 4px 0; min-height: 44px; }
+.total-input:focus { background: #fffdfb; border: 1px solid var(--border); padding: 4px 8px; }
+.total-check { margin: 8px 0 0; font-size: 12px; font-weight: 800; }
+.total-check.ok { color: var(--green-dark); }
+.total-check.error { color: var(--pink-strong); }
+.ocr-debug { margin-top: 12px; border: 1px solid var(--border); background: var(--card); border-radius: 12px; padding: 10px 12px; }
+.ocr-debug summary, .dev-tools summary { cursor: pointer; font-size: 12px; font-weight: 800; color: var(--muted); }
+.ocr-debug pre { white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.dev-tools { margin-top: 12px; }
+.dev-tools .button { margin-top: 8px; }
+.settings-wide-button { width: 100%; margin-top: 12px; }
+#updateStatus { margin: 8px 0 0; }
+
+@media (max-width: 390px) {
+  .total-edit-field { align-items: flex-start; flex-direction: column; }
+  .total-input { width: 100%; max-width: 100%; text-align: left; }
+}

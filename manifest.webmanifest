@@ -1,7 +1,7 @@
 {
   "name": "生活費レシート管理",
   "short_name": "生活費レシート",
-  "description": "レシート商品を生活費カテゴリへ振り分け、iPhone内に保存するPWA",
+  "description": "レシートを撮影・OCRし、生活費カテゴリへ振り分けてiPhone内に保存するPWA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

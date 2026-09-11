@@ -1,11 +1,13 @@
-const CACHE_NAME = 'receipt-pwa-v1-2-1';
+const CACHE_NAME = 'receipt-pwa-v1-3-0';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './db.js',
+  './ocr.js',
   './xlsx-export.js',
+  './version.json',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png'
@@ -31,8 +33,8 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     try {
-      const response = await fetch(event.request);
-      if (response && response.ok) {
+      const response = await fetch(event.request, { cache: 'no-store' });
+      if (response && response.ok && !url.pathname.endsWith('/version.json')) {
         const cache = await caches.open(CACHE_NAME);
         cache.put(event.request, response.clone());
       }
