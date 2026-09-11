@@ -1,10 +1,11 @@
-const CACHE_NAME = 'receipt-pwa-public-iphone-v1-1';
+const CACHE_NAME = 'receipt-pwa-v1-2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './db.js',
+  './xlsx-export.js',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png'

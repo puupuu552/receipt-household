@@ -52,7 +52,11 @@ input:focus, select:focus, button:focus-visible { outline: 3px solid color-mix(i
 
 .receipt-meta { margin: 12px 0; }
 .field-grid { display: grid; gap: 10px; grid-template-columns: 1fr; }
+.field { min-width: 0; max-width: 100%; }
 .field span { display: block; font-size: 12px; color: var(--muted); font-weight: 800; margin-bottom: 5px; }
+.field input, .field select { min-width: 0; max-width: 100%; }
+input[type="date"], input[type="month"] { display: block; width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
+input[type="date"]::-webkit-date-and-time-value, input[type="month"]::-webkit-date-and-time-value { text-align: left; }
 .item-list { display: grid; gap: 12px; }
 .item-card { border: 1px solid var(--border); background: var(--card); border-radius: 16px; padding: 14px; }
 .item-card.needs-review { background: var(--pink); border-color: var(--pink-border); }

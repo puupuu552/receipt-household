@@ -10,6 +10,7 @@ import {
   clearPurchaseData,
   clearRules,
 } from './db.js';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js';
 
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
 const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
@@ -343,6 +344,7 @@ async function refreshMonthly() {
     renderSummary(items);
     els.receiptCount.textContent = `${receipts.length}件`;
     els.deleteMonthBtn.disabled = receipts.length === 0;
+    els.exportExcelBtn.disabled = receipts.length === 0;
     els.receiptList.innerHTML = '';
 
     if (!receipts.length) {
@@ -394,6 +396,99 @@ async function refreshMonthly() {
   }
 }
 
+
+async function exportSelectedMonth() {
+  const monthKey = els.monthPicker.value;
+  if (!monthKey) return;
+
+  hideMessage(els.monthlyMessage);
+  els.exportExcelBtn.disabled = true;
+
+  try {
+    const [receipts, items] = await Promise.all([
+      listReceiptsByMonth(monthKey),
+      listItemsByMonth(monthKey),
+    ]);
+
+    if (!receipts.length) {
+      showMessage(els.monthlyMessage, 'この月には出力する購入データがありません。', true);
+      return;
+    }
+
+    const receiptMap = new Map(receipts.map(receipt => [receipt.id, receipt]));
+    const sums = Object.fromEntries(ALL_CATEGORIES.map(category => [category, 0]));
+    for (const item of items) sums[item.category] = (sums[item.category] || 0) + item.paidAmount;
+    const total = items.reduce((sum, item) => sum + item.paidAmount, 0);
+
+    const summaryRows = [
+      ['カテゴリ', '税込金額'],
+      ...ALL_CATEGORIES.map(category => [category, sums[category] || 0]),
+      ['合計', total],
+    ];
+
+    const detailRows = [
+      ['購入日', '店舗', '商品名', 'カテゴリ', '税込金額', 'レシート記載額', 'AI初期分類', '手動指定'],
+      ...items
+        .map(item => {
+          const receipt = receiptMap.get(item.receiptId);
+          return [
+            receipt?.purchaseDate || '',
+            receipt?.storeName || '',
+            item.itemName,
+            item.category,
+            item.paidAmount,
+            item.printedAmount,
+            item.aiCategory || '',
+            item.manualSpecial || '',
+          ];
+        })
+        .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2])),
+    ];
+
+    const receiptRows = [
+      ['購入日', '店舗', '小計', '税額', '税込合計', '登録日時'],
+      ...[...receipts]
+        .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate) || a.createdAt.localeCompare(b.createdAt))
+        .map(receipt => [
+          receipt.purchaseDate,
+          receipt.storeName,
+          receipt.subtotal,
+          receipt.tax,
+          receipt.total,
+          receipt.createdAt ? new Date(receipt.createdAt).toLocaleString('ja-JP') : '',
+        ]),
+    ];
+
+    const bytes = buildXlsx([
+      { name: '月次集計', rows: summaryRows, widths: [22, 16], currencyColumns: [1], boldLastRow: true },
+      { name: '購入明細', rows: detailRows, widths: [13, 22, 28, 16, 14, 16, 16, 14], currencyColumns: [4, 5] },
+      { name: 'レシート一覧', rows: receiptRows, widths: [13, 22, 14, 12, 14, 22], currencyColumns: [2, 3, 4] },
+    ]);
+
+    const filename = `生活費レシート_${monthKey}.xlsx`;
+    const result = await saveXlsxFile(bytes, filename);
+    showMessage(
+      els.monthlyMessage,
+      result === 'shared'
+        ? 'Excelを作成しました。共有メニューから「ファイルに保存」を選べます。'
+        : 'Excelファイルを出力しました。'
+    );
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      showMessage(els.monthlyMessage, 'Excel出力をキャンセルしました。');
+    } else {
+      showMessage(els.monthlyMessage, `Excel出力に失敗しました: ${error.message}`, true);
+    }
+  } finally {
+    try {
+      const receipts = await listReceiptsByMonth(monthKey);
+      els.exportExcelBtn.disabled = receipts.length === 0;
+    } catch {
+      els.exportExcelBtn.disabled = false;
+    }
+  }
+}
+
 async function deleteSelectedMonth() {
   const monthKey = els.monthPicker.value;
   if (!monthKey) return;
@@ -438,6 +533,7 @@ function bindEvents() {
   els.clearDraftBtn.addEventListener('click', clearDraft);
   els.registerBtn.addEventListener('click', registerDraft);
   els.monthPicker.addEventListener('change', refreshMonthly);
+  els.exportExcelBtn.addEventListener('click', exportSelectedMonth);
   els.deleteMonthBtn.addEventListener('click', deleteSelectedMonth);
   els.clearPurchasesBtn.addEventListener('click', clearAllPurchases);
   els.clearRulesBtn.addEventListener('click', clearAllRules);
