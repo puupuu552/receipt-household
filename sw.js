@@ -1,4 +1,4 @@
-const CACHE_NAME = 'receipt-pwa-public-iphone-v1';
+const CACHE_NAME = 'receipt-pwa-public-iphone-v1-1';
 const ASSETS = [
   './',
   './index.html',
@@ -24,11 +24,23 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-  event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(event.request);
+      if (response && response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(event.request, response.clone());
+      }
       return response;
-    }).catch(() => caches.match('./index.html')))
-  );
+    } catch {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      if (event.request.mode === 'navigate') return caches.match('./index.html');
+      throw new Error('offline');
+    }
+  })());
 });

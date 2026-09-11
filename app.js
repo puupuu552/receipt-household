@@ -16,7 +16,6 @@ const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
 
 const SAMPLE = {
   // 公開リポジトリ用の完全なダミーデータです。実際のレシート情報ではありません。
-  purchaseDate: '2026-01-15',
   storeName: 'サンプルスーパー',
   subtotal: 1120,
   tax: 94,
@@ -74,6 +73,11 @@ function currentMonthKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function localDateKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function makeId(prefix) {
   if (crypto.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -121,7 +125,7 @@ async function loadSample() {
   }
 
   draft = {
-    purchaseDate: SAMPLE.purchaseDate,
+    purchaseDate: localDateKey(),
     storeName: SAMPLE.storeName,
     subtotal: SAMPLE.subtotal,
     tax: SAMPLE.tax,
@@ -296,6 +300,7 @@ async function registerDraft() {
     await saveReceipt(receipt, items);
     showMessage(els.entryMessage, 'iPhone内のデータベースに登録しました。ページを閉じても残ります。');
     els.monthPicker.value = monthKey;
+    await refreshMonthly();
     await refreshSettings();
   } catch (error) {
     showMessage(els.entryMessage, `保存に失敗しました: ${error.message}`, true);
@@ -455,7 +460,9 @@ async function init() {
     await refreshMonthly();
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+        .then(registration => registration.update())
+        .catch(() => {});
     }
   } catch (error) {
     setDbStatus('DBエラー', 'error');
