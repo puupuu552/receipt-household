@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f6f1e8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="生活費レシート" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+  <title>生活費レシート管理</title>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">iPhone内保存 / IndexedDB</p>
+        <h1>生活費レシート管理</h1>
+      </div>
+      <span id="dbStatus" class="status-chip">準備中</span>
+    </header>
+
+    <nav class="tabs" aria-label="画面切り替え">
+      <button type="button" class="tab is-active" data-tab="entry">レシート確認</button>
+      <button type="button" class="tab" data-tab="monthly">月次集計</button>
+      <button type="button" class="tab" data-tab="settings">設定</button>
+    </nav>
+
+    <section id="entryView" class="view">
+      <div class="info-box">
+        <strong>画像はアプリ内に保存しません。</strong>
+        <p>この段階ではOCR前のテストデータを使います。登録後に残るのは日付・店舗・商品名・税込金額・カテゴリなどの文字データだけです。</p>
+      </div>
+
+      <div class="toolbar">
+        <button id="loadSampleBtn" type="button" class="button secondary">テストレシートを読み込む</button>
+        <button id="clearDraftBtn" type="button" class="button ghost" disabled>入力をクリア</button>
+      </div>
+
+      <section id="receiptMeta" class="receipt-meta hidden" aria-label="レシート情報">
+        <div class="field-grid">
+          <label class="field">
+            <span>購入日</span>
+            <input id="purchaseDate" type="date" />
+          </label>
+          <label class="field">
+            <span>店舗名</span>
+            <input id="storeName" type="text" autocomplete="off" />
+          </label>
+        </div>
+      </section>
+
+      <div id="itemList" class="item-list" aria-live="polite"></div>
+
+      <section id="totalCard" class="total-card hidden">
+        <span class="total-label">税込・実支払額</span>
+        <strong id="receiptTotal" class="money total-money">¥0</strong>
+      </section>
+
+      <button id="registerBtn" type="button" class="button primary register-button hidden">この内容で登録</button>
+      <div id="entryMessage" class="message hidden" aria-live="polite"></div>
+    </section>
+
+    <section id="monthlyView" class="view hidden">
+      <div class="month-toolbar">
+        <label class="field month-field">
+          <span>集計月</span>
+          <input id="monthPicker" type="month" />
+        </label>
+        <button id="exportExcelBtn" type="button" class="button secondary" disabled title="次工程で実装します">Excel出力（次工程）</button>
+      </div>
+
+      <div id="monthSummary" class="summary-grid"></div>
+
+      <section class="total-card">
+        <span class="total-label">月合計</span>
+        <strong id="monthTotal" class="money total-money">¥0</strong>
+      </section>
+
+      <section class="receipt-list-section">
+        <div class="section-heading">
+          <div>
+            <h2>登録済みレシート</h2>
+            <p id="receiptCount" class="muted">0件</p>
+          </div>
+        </div>
+        <div id="receiptList" class="receipt-list"></div>
+      </section>
+
+      <button id="deleteMonthBtn" type="button" class="button danger-outline" disabled>この月の購入データを削除</button>
+      <p class="muted small">削除しても「食費に直した」などの学習ルールは残ります。</p>
+      <div id="monthlyMessage" class="message hidden" aria-live="polite"></div>
+    </section>
+
+    <section id="settingsView" class="view hidden">
+      <section class="settings-card">
+        <h2>保存について</h2>
+        <dl class="settings-list">
+          <div><dt>保存先</dt><dd>この端末のIndexedDB</dd></div>
+          <div><dt>レシート画像</dt><dd>保存しない</dd></div>
+          <div><dt>購入データ</dt><dd>任意で月ごとに削除可能</dd></div>
+          <div><dt>分類ルール</dt><dd>購入データ削除後も保持</dd></div>
+        </dl>
+      </section>
+
+      <section class="settings-card">
+        <h2>データ管理</h2>
+        <p class="muted">学習ルール: <strong id="ruleCount">0</strong>件</p>
+        <div class="settings-actions">
+          <button id="clearPurchasesBtn" type="button" class="button danger-outline">すべての購入データを削除</button>
+          <button id="clearRulesBtn" type="button" class="button danger-outline">学習した分類ルールをリセット</button>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2>次工程</h2>
+        <p class="muted">Excel（.xlsx）出力を実装したあと、撮影 → OCR → 自動分類を接続します。</p>
+      </section>
+      <div id="settingsMessage" class="message hidden" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
