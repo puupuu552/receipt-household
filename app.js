@@ -9,11 +9,11 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js?v=1.3.2';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.2';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.2';
+} from './db.js?v=1.3.3';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.3';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.3';
 
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
 const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
 
@@ -139,7 +139,11 @@ function switchTab(name) {
 
 function categoryByKeywords(itemName) {
   const name = String(itemName || '').normalize('NFKC').toLowerCase();
-  const has = words => words.some(word => name.includes(word));
+  const compactName = name.replace(/\s+/g, '');
+  const has = words => words.some(word => {
+    const key = String(word).normalize('NFKC').toLowerCase();
+    return name.includes(key) || compactName.includes(key.replace(/\s+/g, ''));
+  });
 
   if (has(['バナナ', 'キウイ', 'りんご', 'リンゴ', 'みかん', 'オレンジ', 'ぶどう', '葡萄', 'いちご', '苺', 'なし', '梨', 'もも', '桃', '柿', 'メロン', 'すいか', 'スイカ', 'レモン', 'グレープフルーツ'])) {
     return { category: '果物', confident: true };
@@ -150,7 +154,7 @@ function categoryByKeywords(itemName) {
     return { category: '野菜', confident: true };
   }
 
-  if (has(['チョコ', 'ハイチュウ', 'キャンディ', 'あめ', '飴', 'クッキー', 'ビスケット', 'ポテトチップ', 'スナック', 'アイス', 'ガム', 'グミ', 'せんべい', '煎餅', 'ケーキ', 'ジュース', 'コーラ', '炭酸', 'ゼリー', 'プリン'])) {
+  if (has(['チョコ', 'ハイチュウ', 'ハイチュ', 'キャンディ', 'あめ', '飴', 'クッキー', 'ビスケット', 'ポテトチップ', 'スナック', 'アイス', 'ガム', 'グミ', 'せんべい', '煎餅', 'ケーキ', 'ジュース', 'コーラ', '炭酸', 'ゼリー', 'プリン'])) {
     return { category: 'お菓子・嗜好品', confident: true };
   }
 
@@ -245,6 +249,9 @@ async function processReceiptImage(file) {
   try {
     const recognition = await recognizeReceiptImage(file, updateOcrProgress);
     const parsed = parseReceiptText(recognition.text);
+    if (recognition.confidence > 0 && recognition.confidence < 55) {
+      parsed.warnings = [...(parsed.warnings || []), 'OCRの文字認識精度が低めです。商品名と金額を重点的に確認してください。'];
+    }
     const items = await enrichOcrItems(parsed);
     draft = {
       purchaseDate: parsed.purchaseDate || localDateKey(),

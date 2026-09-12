@@ -1,12 +1,12 @@
-const CACHE_NAME = 'receipt-pwa-v1-3-2';
+const CACHE_NAME = 'receipt-pwa-v1-3-3';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=1.3.2',
-  './app.js?v=1.3.2',
-  './db.js?v=1.3.2',
-  './ocr.js?v=1.3.2',
-  './xlsx-export.js?v=1.3.2',
+  './styles.css?v=1.3.3',
+  './app.js?v=1.3.3',
+  './db.js?v=1.3.3',
+  './ocr.js?v=1.3.3',
+  './xlsx-export.js?v=1.3.3',
   './version.json',
   './manifest.webmanifest',
   './icon-192.png',

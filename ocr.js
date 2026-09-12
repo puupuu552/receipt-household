@@ -12,11 +12,8 @@ function loadTesseractBrowser() {
 
     const finish = () => {
       clearTimeout(timeoutId);
-      if (globalThis.Tesseract?.createWorker) {
-        resolve(globalThis.Tesseract);
-      } else {
-        reject(new Error('OCRエンジンを初期化できませんでした。アプリを最新版へ更新して再度お試しください。'));
-      }
+      if (globalThis.Tesseract?.createWorker) resolve(globalThis.Tesseract);
+      else reject(new Error('OCRエンジンを初期化できませんでした。アプリを最新版へ更新して再度お試しください。'));
     };
 
     const fail = () => {
@@ -26,9 +23,8 @@ function loadTesseractBrowser() {
 
     const existing = document.querySelector('script[data-receipt-tesseract]');
     if (existing) {
-      if (globalThis.Tesseract?.createWorker) {
-        finish();
-      } else {
+      if (globalThis.Tesseract?.createWorker) finish();
+      else {
         existing.addEventListener('load', finish, { once: true });
         existing.addEventListener('error', fail, { once: true });
       }
@@ -55,7 +51,21 @@ const SKIP_ITEM_PATTERNS = [
   /^(小計|合計|総合計|お買上|お買い上げ|支払|現金|お釣|おつり|釣銭|WAON|クレジット|電子マネー)/i,
   /(消費税|外税|内税|対象額|税込|税率|軽減税率)/,
   /^(TEL|FAX|電話|レジ|店No|取引|取No|ID|登録番号|担当者|営業時間)/i,
-  /(領収証|領収書|お買い上げありがとうございます|ポイント|残高)/,
+  /(領収証|領収書|お買い上げありがとうございます|ポイント|残高|お得情報|カウンセリング)/,
+];
+
+const RECEIPT_START_PATTERNS = [
+  /領収証/,
+  /領収書/,
+  /お買上明細/,
+  /お買い上げ明細/,
+  /買上明細/,
+];
+
+const RECEIPT_END_PATTERNS = [
+  /^小計/,
+  /小計\s*\d*点?/,
+  /^SUB\s*TOTAL/i,
 ];
 
 function clamp(value, min, max) {
@@ -67,20 +77,29 @@ function normalizeLine(value) {
     .normalize('NFKC')
     .replace(/[｜|]/g, ' ')
     .replace(/[￥]/g, '¥')
+    .replace(/[‐‑‒–—―]/g, '-')
     .replace(/[\t ]+/g, ' ')
     .trim();
 }
 
+function compactLine(value) {
+  return normalizeLine(value).replace(/\s+/g, '');
+}
+
 function moneyAtEnd(line) {
   const normalized = normalizeLine(line);
-  const match = normalized.match(/(?:^|\s)[¥]?\s*(-?\d[\d,]*)\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/);
+  const match = normalized.match(/(?:^|\s)[¥]?[\s]*(-?\d[\d,]*)\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/);
   if (!match) return null;
   const value = Number(match[1].replaceAll(',', ''));
   return Number.isFinite(value) ? value : null;
 }
 
-function dateFromText(text) {
-  const normalized = String(text || '').normalize('NFKC');
+function amountTextAtEnd(line) {
+  return normalizeLine(line).match(/(?:^|\s)[¥]?[\s]*-?\d[\d,]*\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/)?.[0] || '';
+}
+
+function datePartsFromLine(line) {
+  const normalized = String(line || '').normalize('NFKC');
   const patterns = [
     /(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})\s*日?/,
     /(20\d{2})(\d{2})(\d{2})/,
@@ -92,30 +111,40 @@ function dateFromText(text) {
     const month = Number(match[2]);
     const day = Number(match[3]);
     if (month < 1 || month > 12 || day < 1 || day > 31) continue;
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { year, month, day };
+  }
+  return null;
+}
+
+function dateFromText(text) {
+  const rows = String(text || '').split(/\r?\n/);
+  for (const line of rows) {
+    const parts = datePartsFromLine(line);
+    if (!parts) continue;
+    return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
   }
   return null;
 }
 
 function storeFromLines(lines) {
-  for (let i = 0; i < Math.min(lines.length - 1, 12); i += 1) {
+  for (let i = 0; i < Math.min(lines.length - 1, 16); i += 1) {
     const current = lines[i];
     const next = lines[i + 1];
     if (/^(AEON|イオン)$/i.test(current) && /店/.test(next)) return next;
-    if (/(マツモトキヨシ|ドラッグ|スーパー|ストア|マート)/i.test(current) && !/店/.test(current) && /店/.test(next) && next.length < 25) {
+    if (/(マツモトキヨシ|ドラッグ|スーパー|ストア|マート)/i.test(current) && !/店/.test(current) && /店/.test(next) && next.length < 30) {
       return `${current} ${next}`;
     }
   }
 
-  const candidates = lines.slice(0, 22).map((line, index) => {
-    const compact = line.replace(/\s+/g, '');
+  const candidates = lines.slice(0, 24).map((line, index) => {
+    const compact = compactLine(line);
     if (!line || line.length > 55) return null;
     if (/^(領収証|領収書|お買い上げ|ありがとうございます)/.test(compact)) return null;
     if (/(住所|TEL|FAX|電話|営業時間|登録番号|レジ|取引|店No|No\.)/i.test(line)) return null;
     if (/^https?:/i.test(line)) return null;
     if (/^[\d\-\/:. ]+$/.test(line)) return null;
 
-    let score = Math.max(0, 12 - index) * 0.05;
+    let score = Math.max(0, 14 - index) * 0.05;
     if (/(店|スーパー|ストア|マート|AEON|イオン|マツモトキヨシ|ドラッグ|薬局|コンビニ)/i.test(line)) score += 5;
     if (/[ぁ-んァ-ヶ一-龠]/.test(line)) score += 1;
     if (/株式会社|有限会社/.test(line)) score += 0.5;
@@ -127,11 +156,117 @@ function storeFromLines(lines) {
 }
 
 function shouldSkipItemName(name) {
-  const compact = name.replace(/\s+/g, '');
+  const compact = compactLine(name);
   if (!compact) return true;
   if (/^[()（）\[\]\d×xX*＊※\s]+$/.test(compact)) return true;
   if (/(\d+個.*単|数量.*単価)/.test(compact)) return true;
   return SKIP_ITEM_PATTERNS.some(pattern => pattern.test(compact));
+}
+
+function cleanItemName(name) {
+  let value = normalizeLine(name)
+    .replace(/^[※*＊]\s*/, '')
+    .replace(/[※*＊]\s*$/, '')
+    .replace(/^[△▲●■□◆◇・:：]+\s*/, '')
+    .trim();
+
+  // ドラッグストア等の先頭商品コードを除去。R-1等の商品名は対象外。
+  value = value.replace(/^\d{2,5}[A-Z]{0,3}\s*(?=[ぁ-んァ-ヶ一-龠])/i, '');
+  return value.trim();
+}
+
+function looksLikeHumanItemName(name) {
+  const value = cleanItemName(name);
+  if (!value || shouldSkipItemName(value)) return false;
+  if (value.length > 60) return false;
+  if (/^[=+_~`^:;,.!?\-]/.test(value)) return false;
+  if (/^[A-Za-z]{1,4}$/.test(value)) return false;
+  return /[ぁ-んァ-ヶ一-龠A-Za-z]/.test(value);
+}
+
+function findReceiptNumbers(lines) {
+  let subtotal = null;
+  let total = null;
+  let directTax = null;
+  const taxBreakdown = [];
+
+  for (const line of lines) {
+    const compact = compactLine(line);
+    const amount = moneyAtEnd(line);
+    if (amount === null) continue;
+
+    if (/小計/.test(compact) && !/対象額/.test(compact)) subtotal = amount;
+
+    if (!/小計/.test(compact) && /(総合計|^合計|合計¥?|お買上計|お買い上げ計)/.test(compact)) {
+      total = amount;
+    }
+
+    if (/(内,?消費税等|消費税等|消費税|外税|内税)/.test(compact) && !/(対象|税率)/.test(compact)) {
+      directTax = Math.abs(amount);
+      continue;
+    }
+
+    if (/(税|消費税)/.test(compact) && /(8%|10%|対象)/.test(compact)) {
+      taxBreakdown.push(Math.abs(amount));
+    }
+  }
+
+  const tax = directTax ?? taxBreakdown.reduce((sum, value) => sum + value, 0);
+  return { subtotal, total, tax };
+}
+
+function isReceiptStart(line) {
+  const compact = compactLine(line);
+  return RECEIPT_START_PATTERNS.some(pattern => pattern.test(compact));
+}
+
+function isReceiptEnd(line) {
+  const compact = compactLine(line);
+  return RECEIPT_END_PATTERNS.some(pattern => pattern.test(compact));
+}
+
+function isPaymentOrSummaryLine(line) {
+  const compact = compactLine(line);
+  return /^(小計|合計|総合計|現金|お釣|おつり|釣銭|支払|WAON|クレジット|電子マネー)/i.test(compact)
+    || /(消費税|外税|内税|対象額|対象¥|税率|軽減税率|ポイント|残高)/.test(compact);
+}
+
+function findItemZone(lines) {
+  let start = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (isReceiptStart(lines[i])) start = i + 1;
+  }
+
+  if (start < 0) {
+    for (let i = 0; i < lines.length; i += 1) {
+      if (datePartsFromLine(lines[i])) start = i + 1;
+    }
+  }
+
+  if (start < 0) start = 0;
+
+  let end = lines.length;
+  for (let i = start; i < lines.length; i += 1) {
+    if (isReceiptEnd(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
+  // 小計の読取に失敗しても、支払・税セクションへ入ったら商品抽出を止める。
+  if (end === lines.length) {
+    for (let i = start; i < lines.length; i += 1) {
+      const compact = compactLine(lines[i]);
+      if (/^(合計|総合計|現金|支払|お釣|おつり)/.test(compact)
+        || /(消費税|対象額|税率|\d+%対象)/.test(compact)
+        || (/税/.test(compact) && /\d/.test(compact))) {
+        end = i;
+        break;
+      }
+    }
+  }
+
+  return { start, end, lines: lines.slice(start, end) };
 }
 
 function allocateDelta(items, delta) {
@@ -151,74 +286,71 @@ function allocateDelta(items, delta) {
   return allocations.map(row => row.value * sign);
 }
 
-function parseItems(lines) {
+function parseItems(lines, numbers) {
+  const { lines: itemLines, start, end } = findItemZone(lines);
   const items = [];
   let receiptLevelDiscount = 0;
+  let pendingName = '';
+  const receiptMax = Math.max(0, numbers.total || 0, numbers.subtotal || 0);
 
-  for (const original of lines) {
+  const appendItem = (name, amount, originalLine) => {
+    const cleaned = cleanItemName(name);
+    if (!looksLikeHumanItemName(cleaned) || amount <= 0) return false;
+    if (receiptMax > 0 && amount > Math.max(receiptMax + 5, Math.round(receiptMax * 1.05))) return false;
+    if (amount < 10 && !/[ぁ-んァ-ヶ一-龠]/.test(cleaned)) return false;
+
+    const reduced = /^[※*＊]/.test(normalizeLine(originalLine)) || /[※*＊]\s*$/.test(normalizeLine(originalLine));
+    items.push({
+      itemName: cleaned,
+      printedAmount: amount,
+      paidAmount: amount,
+      taxRateHint: reduced ? 8 : null,
+      discountAmount: 0,
+    });
+    return true;
+  };
+
+  for (const original of itemLines) {
     const line = normalizeLine(original);
-    if (!line) continue;
+    if (!line || isPaymentOrSummaryLine(line)) continue;
 
     const amount = moneyAtEnd(line);
-    if (amount === null) continue;
+    if (amount !== null) {
+      const amountText = amountTextAtEnd(line);
+      let name = normalizeLine(line.slice(0, line.length - amountText.length));
+      const isDiscount = /(値引|割引|クーポン|OFF|オフ)/i.test(name);
 
-    const amountText = line.match(/(?:^|\s)[¥]?\s*-?\d[\d,]*\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/)?.[0] || '';
-    let name = normalizeLine(line.slice(0, line.length - amountText.length));
-    const hasReducedMark = /^[※*＊]/.test(name) || /[※*＊]\s*$/.test(line);
-    name = name.replace(/^[※*＊]\s*/, '').replace(/[※*＊]\s*$/, '').trim();
-
-    const isDiscount = /(値引|割引|クーポン|OFF|オフ)/i.test(name);
-    if (isDiscount) {
-      const discount = amount > 0 ? -amount : amount;
-      if (items.length) {
-        const previous = items[items.length - 1];
-        previous.printedAmount = Math.max(0, previous.printedAmount + discount);
-        previous.discountAmount = (previous.discountAmount || 0) + discount;
-      } else {
-        receiptLevelDiscount += discount;
+      if (isDiscount) {
+        const discount = amount > 0 ? -amount : amount;
+        if (items.length) {
+          const previous = items[items.length - 1];
+          previous.printedAmount = Math.max(0, previous.printedAmount + discount);
+          previous.discountAmount = (previous.discountAmount || 0) + discount;
+        } else {
+          receiptLevelDiscount += discount;
+        }
+        pendingName = '';
+        continue;
       }
+
+      if (!cleanItemName(name) && pendingName) name = pendingName;
+      if (appendItem(name, amount, line)) pendingName = '';
       continue;
     }
 
-    if (amount <= 0 || shouldSkipItemName(name)) continue;
+    // 数量・単価補足は商品名として使わない。
+    const compact = compactLine(line);
+    if (/^[（(]?\d+個.*単\d+/.test(compact) || /^(数量|個数|単価)/.test(compact)) continue;
+    if (isReceiptStart(line) || isReceiptEnd(line) || shouldSkipItemName(line)) continue;
 
-    items.push({
-      itemName: name,
-      printedAmount: amount,
-      paidAmount: amount,
-      taxRateHint: hasReducedMark ? 8 : null,
-      discountAmount: 0,
-    });
-  }
-
-  return { items, receiptLevelDiscount };
-}
-
-function findReceiptNumbers(lines) {
-  let subtotal = null;
-  let total = null;
-  let tax = 0;
-  let taxFound = false;
-
-  for (const line of lines) {
-    const compact = line.replace(/\s+/g, '');
-    const amount = moneyAtEnd(line);
-    if (amount === null) continue;
-
-    if (/小計/.test(compact) && !/対象額/.test(compact)) subtotal = amount;
-
-    if (!/小計/.test(compact) && /(総合計|合計)/.test(compact)) total = amount;
-
-    if (total === null && /(支払額|お買上計|お買い上げ計)/.test(compact)) total = amount;
-
-    if (/(消費税|外税|内税)/.test(compact) && !/対象額/.test(compact)) {
-      if (/税込/.test(compact) && /対象/.test(compact)) continue;
-      tax += Math.abs(amount);
-      taxFound = true;
+    if (looksLikeHumanItemName(line)) {
+      pendingName = pendingName ? `${pendingName} ${line}` : line;
+      // 誤結合を避けるため、長すぎる保留テキストは直近行だけ残す。
+      if (pendingName.length > 50) pendingName = line;
     }
   }
 
-  return { subtotal, total, tax: taxFound ? tax : 0 };
+  return { items, receiptLevelDiscount, zone: { start, end } };
 }
 
 export function parseReceiptText(rawText) {
@@ -229,8 +361,8 @@ export function parseReceiptText(rawText) {
 
   const purchaseDate = dateFromText(rawText);
   const storeName = storeFromLines(lines);
-  const { items, receiptLevelDiscount } = parseItems(lines);
   const numbers = findReceiptNumbers(lines);
+  const { items, receiptLevelDiscount, zone } = parseItems(lines, numbers);
   const warnings = [];
 
   const itemSum = items.reduce((sum, item) => sum + item.printedAmount, 0) + receiptLevelDiscount;
@@ -283,6 +415,7 @@ export function parseReceiptText(rawText) {
   if (!purchaseDate) warnings.push('購入日を読み取れませんでした。日付を確認してください。');
   if (!storeName) warnings.push('店舗名を読み取れませんでした。店舗名を入力してください。');
   if (!items.length) warnings.push('商品明細を読み取れませんでした。商品を手動で追加してください。');
+  if (zone.end === lines.length && lines.length > 8) warnings.push('小計位置を特定できませんでした。商品一覧を確認してください。');
 
   return {
     purchaseDate,
@@ -307,37 +440,116 @@ async function imageElementFromFile(file) {
     await image.decode();
     return image;
   } finally {
-    // The image has decoded by the time the promise resolves; revoking is safe after draw.
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 }
 
+function detectReceiptHorizontalBounds(image) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) return { x: 0, width: sourceWidth };
+
+  const sampleWidth = 220;
+  const sampleHeight = Math.max(120, Math.round(sourceHeight * (sampleWidth / sourceWidth)));
+  const canvas = document.createElement('canvas');
+  canvas.width = sampleWidth;
+  canvas.height = sampleHeight;
+  const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  if (!ctx) return { x: 0, width: sourceWidth };
+  ctx.drawImage(image, 0, 0, sampleWidth, sampleHeight);
+  const { data } = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+
+  const y0 = Math.floor(sampleHeight * 0.05);
+  const y1 = Math.ceil(sampleHeight * 0.92);
+  const ratios = new Array(sampleWidth).fill(0);
+
+  for (let x = 0; x < sampleWidth; x += 1) {
+    let lightNeutral = 0;
+    let count = 0;
+    for (let y = y0; y < y1; y += 2) {
+      const offset = (y * sampleWidth + x) * 4;
+      const r = data[offset];
+      const g = data[offset + 1];
+      const b = data[offset + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      if (lum > 150 && (max - min) < 58) lightNeutral += 1;
+      count += 1;
+    }
+    ratios[x] = count ? lightNeutral / count : 0;
+  }
+
+  const mask = ratios.map(value => value >= 0.25);
+  const segments = [];
+  let start = null;
+  for (let x = 0; x < sampleWidth; x += 1) {
+    if (mask[x] && start === null) start = x;
+    if ((!mask[x] || x === sampleWidth - 1) && start !== null) {
+      const end = mask[x] && x === sampleWidth - 1 ? x : x - 1;
+      segments.push({ start, end, width: end - start + 1 });
+      start = null;
+    }
+  }
+
+  const center = sampleWidth / 2;
+  const viable = segments.filter(segment => segment.width >= sampleWidth * 0.18);
+  viable.sort((a, b) => {
+    const aContains = a.start <= center && a.end >= center ? 1 : 0;
+    const bContains = b.start <= center && b.end >= center ? 1 : 0;
+    if (aContains !== bContains) return bContains - aContains;
+    const aDist = Math.abs((a.start + a.end) / 2 - center);
+    const bDist = Math.abs((b.start + b.end) / 2 - center);
+    if (aDist !== bDist) return aDist - bDist;
+    return b.width - a.width;
+  });
+
+  const best = viable[0];
+  if (!best || best.width > sampleWidth * 0.93) return { x: 0, width: sourceWidth };
+
+  const padding = Math.round(sampleWidth * 0.035);
+  const left = Math.max(0, best.start - padding);
+  const right = Math.min(sampleWidth - 1, best.end + padding);
+  const x = Math.round((left / sampleWidth) * sourceWidth);
+  const width = Math.max(1, Math.round(((right - left + 1) / sampleWidth) * sourceWidth));
+
+  if (width < sourceWidth * 0.2) return { x: 0, width: sourceWidth };
+  return { x, width };
+}
+
 async function preprocessImage(file, onProgress) {
-  onProgress?.({ phase: 'prepare', progress: 0.03, message: '画像をOCR向けに準備しています…' });
+  onProgress?.({ phase: 'prepare', progress: 0.03, message: 'レシート部分を検出しています…' });
   const image = await imageElementFromFile(file);
   const sourceWidth = image.naturalWidth || image.width;
   const sourceHeight = image.naturalHeight || image.height;
   if (!sourceWidth || !sourceHeight) throw new Error('画像サイズを取得できませんでした。');
 
-  const scale = Math.min(1, 1600 / sourceWidth, 3200 / sourceHeight);
-  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const crop = detectReceiptHorizontalBounds(image);
+  const targetScale = Math.min(3, 1800 / crop.width, 4200 / sourceHeight);
+  const scale = Math.max(0.55, targetScale);
+  const width = Math.max(1, Math.round(crop.width * scale));
   const height = Math.max(1, Math.round(sourceHeight * scale));
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
   if (!ctx) throw new Error('画像処理を開始できませんでした。');
+
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, height);
-  if ('filter' in ctx) ctx.filter = 'grayscale(1) contrast(1.18)';
-  ctx.drawImage(image, 0, 0, width, height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  if ('filter' in ctx) ctx.filter = 'grayscale(1) contrast(1.42) brightness(1.04)';
+  ctx.drawImage(image, crop.x, 0, crop.width, sourceHeight, 0, 0, width, height);
 
   const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob(value => value ? resolve(value) : reject(new Error('画像の変換に失敗しました。')), 'image/jpeg', 0.92);
+    canvas.toBlob(value => value ? resolve(value) : reject(new Error('画像の変換に失敗しました。')), 'image/jpeg', 0.94);
   });
+
   canvas.width = 1;
   canvas.height = 1;
-  onProgress?.({ phase: 'prepare', progress: 0.08, message: '画像準備完了' });
+  onProgress?.({ phase: 'prepare', progress: 0.09, message: 'レシートを拡大・高コントラスト化しました' });
   return blob;
 }
 
@@ -358,14 +570,10 @@ export async function recognizeReceiptImage(file, onProgress) {
   onProgress?.({ phase: 'engine', progress: 0.1, message: 'OCRエンジンを読み込み中…' });
   let worker;
   try {
-    // Safari / iOS PWA では Tesseract.js の ESM CDN build が
-    // createWorker を named export として返さない環境があるため、
-    // 公式CDNのブラウザbuildを読み込み、globalThis.Tesseract を使う。
     const Tesseract = await loadTesseractBrowser();
     const createWorker = Tesseract?.createWorker;
-    if (typeof createWorker !== 'function') {
-      throw new Error('OCRエンジンを開始できませんでした。');
-    }
+    if (typeof createWorker !== 'function') throw new Error('OCRエンジンを開始できませんでした。');
+
     worker = await createWorker(['jpn', 'eng'], 1, {
       logger: event => {
         const p = Number(event?.progress || 0);
@@ -374,6 +582,17 @@ export async function recognizeReceiptImage(file, onProgress) {
         onProgress?.({ phase: status, progress: clamp(mapped, 0.1, 0.95), message: progressMessage(status, p) });
       },
     });
+
+    try {
+      await worker.setParameters({
+        tessedit_pageseg_mode: '4',
+        preserve_interword_spaces: '1',
+        user_defined_dpi: '300',
+      });
+    } catch {
+      // Tesseract buildによって未対応パラメータがあってもOCR自体は継続する。
+    }
+
     const result = await worker.recognize(prepared);
     onProgress?.({ phase: 'done', progress: 1, message: '読み取り完了。内容を確認してください。' });
     return {
