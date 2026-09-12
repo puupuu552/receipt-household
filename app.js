@@ -9,11 +9,11 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js?v=1.3.5';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.5';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.5';
+} from './db.js?v=1.4.0';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.4.0';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.4.0';
 
-const APP_VERSION = '1.3.4';
+const APP_VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
 const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
 
@@ -36,7 +36,6 @@ const SAMPLE = {
 
 let draft = null;
 let ocrBusy = false;
-let updateReloadRequested = false;
 
 const els = {
   dbStatus: document.querySelector('#dbStatus'),
@@ -836,17 +835,15 @@ function setUpdateUi(message, busy = false) {
 async function checkAndUpdateApp() {
   setUpdateUi('最新版を確認しています…', true);
   try {
-    const response = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const response = await fetch(`./version.json?t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
     if (!response.ok) throw new Error('バージョン情報を取得できませんでした。');
     const { version: latest } = await response.json();
     if (!latest) throw new Error('バージョン情報が不正です。');
 
     if (latest === APP_VERSION) {
-      // 同じバージョンでもService Workerに更新確認をかける。
-      const registration = 'serviceWorker' in navigator
-        ? await navigator.serviceWorker.getRegistration()
-        : null;
-      if (registration) await registration.update().catch(() => {});
       setUpdateUi(`v${APP_VERSION} が最新版です。`);
       els.quickUpdateBtn.textContent = '最新';
       setTimeout(() => { els.quickUpdateBtn.textContent = '更新'; }, 1800);
@@ -854,21 +851,16 @@ async function checkAndUpdateApp() {
     }
 
     setUpdateUi(`v${latest} を検出しました。更新しています…`, true);
-    updateReloadRequested = true;
 
+    // 更新時だけアプリのService WorkerとCache Storageをいったん外す。
+    // IndexedDB（家計データ・分類ルール）は一切削除しない。
+    await clearAppCaches();
     if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration();
-      if (registration) {
-        await registration.update().catch(() => {});
-        const waiting = registration.waiting;
-        if (waiting) waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(registration => registration.unregister().catch(() => false)));
     }
 
-    // 古いapp.js / ocr.jsが残らないよう、アプリ用Cache Storageだけ破棄する。
-    // IndexedDB（家計データ）は削除しない。
-    await clearAppCaches();
-
+    // Service Workerを介さずGitHub Pagesから最新版のindex.htmlを取得させる。
     const next = new URL('./', location.href);
     next.searchParams.set('v', latest);
     next.searchParams.set('t', String(Date.now()));
@@ -904,11 +896,8 @@ function bindEvents() {
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (updateReloadRequested) location.reload();
-  });
   try {
-    const registration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+    const registration = await navigator.serviceWorker.register(`./sw.js?v=${encodeURIComponent(APP_VERSION)}`, { updateViaCache: 'none' });
     registration.update().catch(() => {});
   } catch {
     // PWA update support is optional; the app can still use IndexedDB.

@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="生活費レシート" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=1.3.5" />
+  <link rel="stylesheet" href="./styles.css?v=1.4.0" />
   <title>生活費レシート管理</title>
 </head>
 <body>
@@ -22,7 +22,7 @@
       <div class="header-actions">
         <span id="dbStatus" class="status-chip">準備中</span>
         <div class="header-update-row">
-          <span id="headerVersion" class="version-chip">v1.3.5</span>
+          <span id="headerVersion" class="version-chip">v1.4.0</span>
           <button id="quickUpdateBtn" type="button" class="header-update-button" aria-label="最新版を確認して更新">更新</button>
         </div>
       </div>
@@ -132,7 +132,7 @@
       <section class="settings-card">
         <h2>アプリ更新</h2>
         <dl class="settings-list">
-          <div><dt>現在のバージョン</dt><dd id="appVersion">v1.3.5</dd></div>
+          <div><dt>現在のバージョン</dt><dd id="appVersion">v1.4.0</dd></div>
         </dl>
         <button id="updateAppBtn" type="button" class="button secondary settings-wide-button">最新版を確認・更新</button>
         <p id="updateStatus" class="muted small">今後はここから最新版へ更新できます。</p>
@@ -159,12 +159,12 @@
 
       <section class="settings-card">
         <h2>OCRについて</h2>
-        <p class="muted">v1.3.5は端末内OCRの試験版です。撮影条件やレシート書式によって誤読があります。ピンクの「要確認」と金額合計を確認してから登録してください。</p>
+        <p class="muted">v1.4.0はローカルOCR強化版です。文字・白黒補正・金額列の3通りで読み取り、数量×単価や小計との差額でも金額を補完します。補完した項目はピンクの「要確認」に残します。</p>
       </section>
       <div id="settingsMessage" class="message hidden" aria-live="polite"></div>
     </section>
   </main>
 
-  <script type="module" src="./app.js?v=1.3.5"></script>
+  <script type="module" src="./app.js?v=1.4.0"></script>
 </body>
 </html>

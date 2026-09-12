@@ -86,16 +86,50 @@ function compactLine(value) {
   return normalizeLine(value).replace(/\s+/g, '');
 }
 
-function moneyAtEnd(line) {
-  const normalized = normalizeLine(line);
-  const match = normalized.match(/(?:^|\s)[¥]?[\s]*(-?\d[\d,]*)\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/);
+function amountMatchAtEnd(line) {
+  // 軽減税率記号「※」が OCR で「3%」になる例（138※ -> 1383%）を補正。
+  const normalized = normalizeLine(line).replace(/(\d{2,5})3%\s*$/, '$1※');
+
+  // 通常ケース。金額前に空白があるレシート。
+  let match = normalized.match(/(?:^|\s)([¥]?\s*-?\d[\d,]*)\s*(?:円)?\s*[※*＊%]?\s*[)）]?\s*$/);
+  // OCR は商品名と価格の空白を消すことがあるため、末尾2桁以上なら連結状態も許可する。
+  // 例: 「国産生芋100%板蒟蒻108」 -> 108
+  if (!match) match = normalized.match(/([^\d]|^)([¥]?\s*-?\d[\d,]{1,5})\s*(?:円)?\s*[※*＊%]?\s*[)）]?\s*$/);
   if (!match) return null;
-  const value = Number(match[1].replaceAll(',', ''));
-  return Number.isFinite(value) ? value : null;
+
+  const raw = (match[2] ?? match[1] ?? '').replace(/[¥\s]/g, '');
+  const value = Number(raw.replaceAll(',', ''));
+  if (!Number.isFinite(value)) return null;
+
+  const full = match[0];
+  // 連結ケースでは先頭の非数字1文字は商品名側なので除外する。
+  const text = match[2] ? full.slice(full.indexOf(match[2])) : full;
+  return { value, text };
+}
+
+function moneyAtEnd(line) {
+  return amountMatchAtEnd(line)?.value ?? null;
 }
 
 function amountTextAtEnd(line) {
-  return normalizeLine(line).match(/(?:^|\s)[¥]?[\s]*-?\d[\d,]*\s*(?:円)?\s*[※*＊]?\s*[)）]?\s*$/)?.[0] || '';
+  return amountMatchAtEnd(line)?.text || '';
+}
+
+function quantityTimesUnit(line) {
+  const compact = compactLine(line).replace(/[xX]/g, '×');
+  const patterns = [
+    /(\d{1,3})個.*?×.*?単(?:価)?[¥￥]?(\d{1,6})/,
+    /(\d{1,3})個.*?単(?:価)?[¥￥]?(\d{1,6})/,
+    /数量(\d{1,3}).*?単価[¥￥]?(\d{1,6})/,
+  ];
+  for (const pattern of patterns) {
+    const match = compact.match(pattern);
+    if (!match) continue;
+    const qty = Number(match[1]);
+    const unit = Number(match[2]);
+    if (qty > 0 && qty <= 99 && unit > 0 && unit <= 999999) return { qty, unit, total: qty * unit };
+  }
+  return null;
 }
 
 function datePartsFromLine(line) {
@@ -309,11 +343,26 @@ function allocateDelta(items, delta) {
   return allocations.map(row => row.value * sign);
 }
 
+function unpricedItemScore(line) {
+  const value = cleanItemName(line);
+  if (!looksLikeHumanItemName(value)) return -1;
+  if (value.length < 3 || value.length > 48) return -1;
+  if (/^(領収|レシート|鐘|商品|明細)$/.test(value)) return -1;
+  if (/(レジ|責:|取\d|登録|電話|営業時間|http|www\.)/i.test(value)) return -1;
+  let score = 0;
+  if (/[ぁ-んァ-ヶ一-龠]/.test(value)) score += 4;
+  if (/[A-Za-z]/.test(value)) score += 1;
+  if (/\d/.test(value)) score += 0.5;
+  score += Math.min(3, value.length / 12);
+  return score;
+}
+
 function parseItems(lines, numbers) {
   const { lines: itemLines, start, end } = findItemZone(lines);
   const items = [];
   let receiptLevelDiscount = 0;
   let pendingName = '';
+  const unpricedCandidates = [];
   const receiptMax = Math.max(0, numbers.total || 0, numbers.subtotal || 0);
 
   const appendItem = (name, amount, originalLine) => {
@@ -361,27 +410,50 @@ function parseItems(lines, numbers) {
       continue;
     }
 
-    // 数量・単価補足は商品名として使わない。
+    // 数量×単価が読めた場合は直前商品の金額を算数で補正する。
     const compact = compactLine(line);
+    const quantityInfo = quantityTimesUnit(line);
+    if (quantityInfo) {
+      if (items.length) {
+        const previous = items[items.length - 1];
+        const calculated = quantityInfo.total;
+        if (calculated > 0 && calculated !== previous.printedAmount) {
+          previous.printedAmount = calculated;
+          previous.paidAmount = calculated;
+          previous.inferred = true;
+          previous.correctionReason = '数量×単価から補正';
+        }
+      }
+      continue;
+    }
     if (/^[（(]?\d+個.*単\d+/.test(compact) || /^(数量|個数|単価)/.test(compact)) continue;
     if (isReceiptStart(line) || isReceiptEnd(line) || shouldSkipItemName(line)) continue;
 
     if (looksLikeHumanItemName(line)) {
+      const score = unpricedItemScore(line);
+      if (score >= 0) unpricedCandidates.push({ name: cleanItemName(line), score });
       pendingName = pendingName ? `${pendingName} ${line}` : line;
       // 誤結合を避けるため、長すぎる保留テキストは直近行だけ残す。
       if (pendingName.length > 50) pendingName = line;
     }
   }
 
-  // OCRが価格列だけ落とした場合、
-  // 「小計 n点」と既読商品の差額から、最後の未価格商品を1件だけ復元する。
-  // 金額は推測扱いなので必ず要確認にする。
+  // OCRが価格列を落とした場合、小計との差額で1商品だけ復元する。
+  // 「小計 n点」がなくても、商品ゾーン内に価格なしの商品候補があり、
+  // 差額が常識的な商品価格なら補完する。必ず要確認にする。
   const currentSum = items.reduce((sum, item) => sum + item.printedAmount, 0) + receiptLevelDiscount;
   const targetSubtotal = Number(numbers.subtotal || 0);
   const missingCount = Number(numbers.itemCountHint || 0) - items.length;
   const remainder = targetSubtotal - currentSum;
-  if (targetSubtotal > 0 && remainder > 0 && missingCount === 1) {
-    const inferredName = looksLikeHumanItemName(pendingName) ? cleanItemName(pendingName) : '商品名を確認';
+  const plausibleRemainder = targetSubtotal > 0
+    && remainder >= 10
+    && remainder <= Math.min(9999, Math.max(500, Math.round(targetSubtotal * 0.45)));
+  const rankedUnpriced = unpricedCandidates
+    .filter(candidate => !items.some(item => compactLine(item.itemName) === compactLine(candidate.name)))
+    .sort((a, b) => b.score - a.score);
+  if (plausibleRemainder && (missingCount === 1 || rankedUnpriced.length > 0)) {
+    const inferredName = rankedUnpriced[0]?.name
+      || (looksLikeHumanItemName(pendingName) ? cleanItemName(pendingName) : '商品名を確認');
     items.push({
       itemName: inferredName,
       printedAmount: remainder,
@@ -389,6 +461,7 @@ function parseItems(lines, numbers) {
       taxRateHint: null,
       discountAmount: 0,
       inferred: true,
+      correctionReason: '小計との差額から補完',
     });
   }
 
@@ -682,6 +755,81 @@ async function makeBinaryVariant(blob) {
   return out;
 }
 
+function collectLayoutLines(blocks) {
+  if (!Array.isArray(blocks)) return [];
+  const lines = [];
+  for (const block of blocks) {
+    for (const paragraph of block?.paragraphs || []) {
+      for (const line of paragraph?.lines || []) {
+        const text = normalizeLine(line?.text || '');
+        const bbox = line?.bbox;
+        if (!text || !bbox) continue;
+        lines.push({ text, bbox: { x0: bbox.x0, y0: bbox.y0, x1: bbox.x1, y1: bbox.y1 } });
+      }
+    }
+  }
+  return lines.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+}
+
+function collectNumericWords(blocks) {
+  if (!Array.isArray(blocks)) return [];
+  const words = [];
+  for (const block of blocks) {
+    for (const paragraph of block?.paragraphs || []) {
+      for (const line of paragraph?.lines || []) {
+        for (const word of line?.words || []) {
+          const bbox = word?.bbox;
+          const raw = String(word?.text || '').normalize('NFKC').replace(/[¥￥,\s]/g, '');
+          const digits = raw.match(/\d{1,6}/)?.[0];
+          if (!bbox || !digits) continue;
+          const value = Number(digits);
+          if (!Number.isFinite(value) || value <= 0 || value > 999999) continue;
+          words.push({ value, text: word.text, bbox: { x0: bbox.x0, y0: bbox.y0, x1: bbox.x1, y1: bbox.y1 } });
+        }
+      }
+    }
+  }
+  return words;
+}
+
+function buildPositionAugmentedText(layoutLines, numericWords) {
+  if (!layoutLines.length || !numericWords.length) return '';
+  const maxX = Math.max(
+    ...layoutLines.map(line => line.bbox.x1 || 0),
+    ...numericWords.map(word => word.bbox.x1 || 0),
+    1,
+  );
+  const rightThreshold = maxX * 0.56;
+  const used = new Set();
+  const output = [];
+
+  for (const line of layoutLines) {
+    const centerY = (line.bbox.y0 + line.bbox.y1) / 2;
+    const lineHeight = Math.max(10, line.bbox.y1 - line.bbox.y0);
+    const matches = numericWords
+      .map((word, index) => ({ word, index }))
+      .filter(({ word, index }) => {
+        if (used.has(index) || word.bbox.x0 < rightThreshold) return false;
+        const wordCenterY = (word.bbox.y0 + word.bbox.y1) / 2;
+        return Math.abs(wordCenterY - centerY) <= Math.max(18, lineHeight * 0.85);
+      })
+      .sort((a, b) => b.word.bbox.x1 - a.word.bbox.x1);
+
+    if (!matches.length) {
+      output.push(line.text);
+      continue;
+    }
+
+    const chosen = matches[0];
+    used.add(chosen.index);
+    const existing = amountMatchAtEnd(line.text);
+    let base = line.text;
+    if (existing?.text) base = normalizeLine(base.slice(0, Math.max(0, base.length - existing.text.length)));
+    output.push(`${base} ¥${chosen.word.value}`.trim());
+  }
+  return output.join('\n');
+}
+
 function textQualityScore(text) {
   const value = String(text || '');
   let score = 0;
@@ -726,36 +874,56 @@ export async function recognizeReceiptImage(file, onProgress) {
       },
     });
 
-    const runPass = async (imageBlob, psm, label, base, span) => {
+    const runPass = async (imageBlob, psm, label, base, span, extraParameters = {}, wantBlocks = false) => {
       try {
         await worker.setParameters({
           tessedit_pageseg_mode: String(psm),
           preserve_interword_spaces: '1',
           user_defined_dpi: '300',
+          tessedit_char_whitelist: '',
+          ...extraParameters,
         });
       } catch { /* noop */ }
       onProgress?.({ phase: 'recognize', progress: base, message: `${label}で文字を読み取り中…` });
-      const result = await worker.recognize(imageBlob);
+      const result = await worker.recognize(imageBlob, {}, wantBlocks ? { text: true, blocks: true } : { text: true });
       onProgress?.({ phase: 'recognize', progress: base + span, message: `${label}の読み取り完了` });
       return {
         text: result?.data?.text || '',
         confidence: Number(result?.data?.confidence || 0),
+        blocks: result?.data?.blocks || null,
       };
     };
 
-    // 1回目: レイアウト重視。2回目: 二値化+単一ブロックで価格列の拾い漏れを補う。
-    const first = await runPass(prepared, 4, '1回目', 0.22, 0.35);
-    const second = await runPass(binary, 6, '2回目（精度補正）', 0.60, 0.34);
+    // 1回目: 日本語+レイアウト。2回目: 二値化で文字補完。3回目: 数字だけを専用認識。
+    const first = await runPass(prepared, 4, '1回目（文字・位置）', 0.20, 0.27, {}, true);
+    const second = await runPass(binary, 6, '2回目（白黒補正）', 0.49, 0.25);
+    const numeric = await runPass(prepared, 11, '3回目（金額列）', 0.76, 0.18, {
+      tessedit_char_whitelist: '0123456789,¥￥%※*',
+    }, true);
 
-    const firstScore = textQualityScore(first.text) + first.confidence * 0.12;
-    const secondScore = textQualityScore(second.text) + second.confidence * 0.12;
-    const best = secondScore > firstScore ? second : first;
+    const layoutLines = collectLayoutLines(first.blocks);
+    const numericWords = collectNumericWords(numeric.blocks);
+    const positionedText = buildPositionAugmentedText(layoutLines, numericWords);
+    const positioned = positionedText ? {
+      text: positionedText,
+      confidence: Math.max(0, Math.min(100, (first.confidence + numeric.confidence) / 2)),
+      source: 'position+numeric',
+    } : null;
 
-    onProgress?.({ phase: 'done', progress: 1, message: '2通りの読み取りを比較しました。内容を確認してください。' });
+    const candidates = [
+      { ...first, source: 'layout' },
+      { ...second, source: 'binary' },
+      ...(positioned ? [positioned] : []),
+    ];
+    candidates.sort((a, b) => (textQualityScore(b.text) + b.confidence * 0.12) - (textQualityScore(a.text) + a.confidence * 0.12));
+    const best = candidates[0];
+
+    onProgress?.({ phase: 'done', progress: 1, message: '文字・白黒・金額列の3通りを照合しました。内容を確認してください。' });
     return {
       text: best.text,
       confidence: best.confidence,
-      candidates: [first, second],
+      candidates,
+      diagnostics: { layoutLineCount: layoutLines.length, numericWordCount: numericWords.length },
     };
   } finally {
     if (worker) {
