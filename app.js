@@ -9,11 +9,11 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js?v=1.3.3';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.3';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.3';
+} from './db.js?v=1.3.4';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.4';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.4';
 
-const APP_VERSION = '1.3.3';
+const APP_VERSION = '1.3.4';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
 const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
 

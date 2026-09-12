@@ -362,6 +362,11 @@ export function parseReceiptText(rawText) {
   const purchaseDate = dateFromText(rawText);
   const storeName = storeFromLines(lines);
   const numbers = findReceiptNumbers(lines);
+  // OCRが「合計」の数字を1〜2桁に誤読することがある。
+  // 小計が取れているのに合計が極端に小さい場合は、誤読した合計を採用しない。
+  if (numbers.subtotal && numbers.total && numbers.total < numbers.subtotal * 0.6) {
+    numbers.total = numbers.subtotal;
+  }
   const { items, receiptLevelDiscount, zone } = parseItems(lines, numbers);
   const warnings = [];
 
@@ -518,16 +523,20 @@ function detectReceiptHorizontalBounds(image) {
 }
 
 async function preprocessImage(file, onProgress) {
-  onProgress?.({ phase: 'prepare', progress: 0.03, message: 'レシート部分を検出しています…' });
+  // v1.3.4: 金額列を欠落させないことを最優先にする。
+  // v1.3.3 の自動横トリミングは、湾曲したレシートで右端の価格列を
+  // 紙外と誤判定して切り落とすケースがあったため、OCR入力は全幅を保持する。
+  onProgress?.({ phase: 'prepare', progress: 0.03, message: '画像をOCR向けに準備しています…' });
   const image = await imageElementFromFile(file);
   const sourceWidth = image.naturalWidth || image.width;
   const sourceHeight = image.naturalHeight || image.height;
   if (!sourceWidth || !sourceHeight) throw new Error('画像サイズを取得できませんでした。');
 
-  const crop = detectReceiptHorizontalBounds(image);
-  const targetScale = Math.min(3, 1800 / crop.width, 4200 / sourceHeight);
-  const scale = Math.max(0.55, targetScale);
-  const width = Math.max(1, Math.round(crop.width * scale));
+  // iPhoneでのメモリ使用量を抑えつつ、小さいレシート文字は潰さない。
+  // 縦長写真は横幅1800px程度を上限にし、元画像が小さい場合は最大1.45倍まで拡大。
+  const fitScale = Math.min(1800 / sourceWidth, 4200 / sourceHeight);
+  const scale = Math.max(0.65, Math.min(1.45, fitScale));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
   const height = Math.max(1, Math.round(sourceHeight * scale));
 
   const canvas = document.createElement('canvas');
@@ -540,8 +549,8 @@ async function preprocessImage(file, onProgress) {
   ctx.fillRect(0, 0, width, height);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  if ('filter' in ctx) ctx.filter = 'grayscale(1) contrast(1.42) brightness(1.04)';
-  ctx.drawImage(image, crop.x, 0, crop.width, sourceHeight, 0, 0, width, height);
+  if ('filter' in ctx) ctx.filter = 'grayscale(1) contrast(1.28) brightness(1.03)';
+  ctx.drawImage(image, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
 
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob(value => value ? resolve(value) : reject(new Error('画像の変換に失敗しました。')), 'image/jpeg', 0.94);
@@ -549,7 +558,7 @@ async function preprocessImage(file, onProgress) {
 
   canvas.width = 1;
   canvas.height = 1;
-  onProgress?.({ phase: 'prepare', progress: 0.09, message: 'レシートを拡大・高コントラスト化しました' });
+  onProgress?.({ phase: 'prepare', progress: 0.09, message: 'レシート全幅を保持して高コントラスト化しました' });
   return blob;
 }
 
