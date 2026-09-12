@@ -150,14 +150,59 @@ function datePartsFromLine(line) {
   return null;
 }
 
+const JP_WEEKDAY = { 日: 0, 月: 1, 火: 2, 水: 3, 木: 4, 金: 5, 土: 6 };
+
+function formatDateParts(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function weekdayHintFromLine(line) {
+  const match = String(line || '').normalize('NFKC').match(/[（(]\s*([日月火水木金土])\s*[）)]/);
+  return match ? JP_WEEKDAY[match[1]] : null;
+}
+
+function daysFromNow(date) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.abs(date.getTime() - today.getTime()) / 86400000;
+}
+
+function repairDateWithWeekday(parts, weekday) {
+  if (weekday === null || weekday === undefined) return parts;
+  const exact = new Date(parts.year, parts.month - 1, parts.day);
+  if (exact.getFullYear() === parts.year && exact.getMonth() === parts.month - 1 && exact.getDate() === parts.day && exact.getDay() === weekday) return parts;
+
+  const candidates = [];
+  for (let yearOffset = -1; yearOffset <= 1; yearOffset += 1) {
+    for (let dayOffset = -2; dayOffset <= 2; dayOffset += 1) {
+      const date = new Date(parts.year + yearOffset, parts.month - 1, parts.day + dayOffset);
+      if (date.getDay() !== weekday) continue;
+      const editCost = Math.abs(yearOffset) * 2 + Math.abs(dayOffset);
+      const recencyPenalty = Math.min(3.5, daysFromNow(date) / 180);
+      candidates.push({
+        year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(),
+        score: editCost + recencyPenalty,
+      });
+    }
+  }
+  candidates.sort((a, b) => a.score - b.score);
+  return candidates[0] || parts;
+}
+
 function dateFromText(text) {
   const rows = String(text || '').split(/\r?\n/);
   for (const line of rows) {
     const parts = datePartsFromLine(line);
     if (!parts) continue;
-    return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+    const repaired = repairDateWithWeekday(parts, weekdayHintFromLine(line));
+    const repairedFlag = repaired.year !== parts.year || repaired.month !== parts.month || repaired.day !== parts.day;
+    return {
+      date: formatDateParts(repaired.year, repaired.month, repaired.day),
+      repaired: repairedFlag,
+      original: formatDateParts(parts.year, parts.month, parts.day),
+    };
   }
-  return null;
+  return { date: null, repaired: false, original: null };
 }
 
 function storeFromLines(lines) {
@@ -207,6 +252,27 @@ function cleanItemName(name) {
   // ドラッグストア等の先頭商品コードを除去。R-1等の商品名は対象外。
   value = value.replace(/^\d{2,5}[A-Z]{0,3}\s*(?=[ぁ-んァ-ヶ一-龠])/i, '');
   return value.trim();
+}
+
+function repairLikelyItemName(name) {
+  const original = cleanItemName(name);
+  let value = original;
+
+  // 表記ゆれ・OCRで起きやすい誤字だけを保守的に補正する。
+  value = value.replace(/\bT\s+V\b/gi, 'TV');
+  value = value.replace(/キウィ/g, 'キウイ');
+  value = value.replace(/コー[ソン]天/g, 'コーン天');
+
+  if (/国産生芋100%板/.test(value) && !/(蒟蒻|こんにゃく)/.test(value)) {
+    value = '国産生芋100%板蒟蒻';
+  }
+
+  const compact = value.replace(/\s+/g, '');
+  if (/^TV/.test(compact) && /トマト/.test(compact) && /(各|どし|ごし|らご)/.test(compact)) {
+    value = 'TV あらごしトマト';
+  }
+
+  return { name: value, repaired: value !== original, original };
 }
 
 function looksLikeHumanItemName(name) {
@@ -363,10 +429,12 @@ function parseItems(lines, numbers) {
   let receiptLevelDiscount = 0;
   let pendingName = '';
   const unpricedCandidates = [];
+  const pricedLineIndices = [];
   const receiptMax = Math.max(0, numbers.total || 0, numbers.subtotal || 0);
 
   const appendItem = (name, amount, originalLine) => {
-    const cleaned = cleanItemName(name);
+    const repairedName = repairLikelyItemName(name);
+    const cleaned = repairedName.name;
     if (!looksLikeHumanItemName(cleaned) || amount <= 0) return false;
     if (receiptMax > 0 && amount > Math.max(receiptMax + 5, Math.round(receiptMax * 1.05))) return false;
     if (amount < 10 && !/[ぁ-んァ-ヶ一-龠]/.test(cleaned)) return false;
@@ -374,6 +442,8 @@ function parseItems(lines, numbers) {
     const reduced = /^[※*＊]/.test(normalizeLine(originalLine)) || /[※*＊]\s*$/.test(normalizeLine(originalLine));
     items.push({
       itemName: cleaned,
+      ocrName: repairedName.original || cleaned,
+      nameRepaired: repairedName.repaired,
       printedAmount: amount,
       paidAmount: amount,
       taxRateHint: reduced ? 8 : null,
@@ -382,7 +452,8 @@ function parseItems(lines, numbers) {
     return true;
   };
 
-  for (const original of itemLines) {
+  for (let lineIndex = 0; lineIndex < itemLines.length; lineIndex += 1) {
+    const original = itemLines[lineIndex];
     const line = normalizeLine(original);
     if (!line || isPaymentOrSummaryLine(line)) continue;
 
@@ -406,7 +477,7 @@ function parseItems(lines, numbers) {
       }
 
       if (!cleanItemName(name) && pendingName) name = pendingName;
-      if (appendItem(name, amount, line)) pendingName = '';
+      if (appendItem(name, amount, line)) { pricedLineIndices.push(lineIndex); pendingName = ''; }
       continue;
     }
 
@@ -431,37 +502,49 @@ function parseItems(lines, numbers) {
 
     if (looksLikeHumanItemName(line)) {
       const score = unpricedItemScore(line);
-      if (score >= 0) unpricedCandidates.push({ name: cleanItemName(line), score });
+      if (score >= 0) unpricedCandidates.push({ name: cleanItemName(line), score, lineIndex });
       pendingName = pendingName ? `${pendingName} ${line}` : line;
       // 誤結合を避けるため、長すぎる保留テキストは直近行だけ残す。
       if (pendingName.length > 50) pendingName = line;
     }
   }
 
-  // OCRが価格列を落とした場合、小計との差額で1商品だけ復元する。
-  // 「小計 n点」がなくても、商品ゾーン内に価格なしの商品候補があり、
-  // 差額が常識的な商品価格なら補完する。必ず要確認にする。
+  // v1.4.2: 差額だけを根拠に「存在しない商品」を作らない。
+  // ただし、OCR上に価格なしの商品名らしい行が実際に存在し、しかも
+  // それが価格付き商品の間に1行だけある場合は、その実在OCR行に限って
+  // 小計との差額を価格候補として付ける。必ず要確認にする。
   const currentSum = items.reduce((sum, item) => sum + item.printedAmount, 0) + receiptLevelDiscount;
   const targetSubtotal = Number(numbers.subtotal || 0);
-  const missingCount = Number(numbers.itemCountHint || 0) - items.length;
+  const missingCount = numbers.itemCountHint ? Number(numbers.itemCountHint) - items.length : null;
   const remainder = targetSubtotal - currentSum;
   const plausibleRemainder = targetSubtotal > 0
     && remainder >= 10
     && remainder <= Math.min(9999, Math.max(500, Math.round(targetSubtotal * 0.45)));
-  const rankedUnpriced = unpricedCandidates
+
+  const firstPriced = pricedLineIndices.length ? Math.min(...pricedLineIndices) : -1;
+  const lastPriced = pricedLineIndices.length ? Math.max(...pricedLineIndices) : -1;
+  const interiorCandidates = unpricedCandidates
+    .filter(candidate => candidate.lineIndex > firstPriced && candidate.lineIndex < lastPriced)
     .filter(candidate => !items.some(item => compactLine(item.itemName) === compactLine(candidate.name)))
     .sort((a, b) => b.score - a.score);
-  if (plausibleRemainder && (missingCount === 1 || rankedUnpriced.length > 0)) {
-    const inferredName = rankedUnpriced[0]?.name
-      || (looksLikeHumanItemName(pendingName) ? cleanItemName(pendingName) : '商品名を確認');
+
+  const mayAttachRemainderToExistingOcrLine = plausibleRemainder
+    && ((missingCount === 1 && interiorCandidates.length >= 1)
+      || (missingCount === null && interiorCandidates.length === 1));
+
+  if (mayAttachRemainderToExistingOcrLine) {
+    const candidate = interiorCandidates[0];
+    const inferredRepair = repairLikelyItemName(candidate.name);
     items.push({
-      itemName: inferredName,
+      itemName: inferredRepair.name,
+      ocrName: inferredRepair.original || candidate.name,
+      nameRepaired: inferredRepair.repaired,
       printedAmount: remainder,
       paidAmount: remainder,
       taxRateHint: null,
       discountAmount: 0,
       inferred: true,
-      correctionReason: '小計との差額から補完',
+      correctionReason: 'OCR上の価格なし商品行に小計差額を仮設定',
     });
   }
 
@@ -474,8 +557,15 @@ export function parseReceiptText(rawText) {
     .map(normalizeLine)
     .filter(Boolean);
 
-  const purchaseDate = dateFromText(rawText);
-  const storeName = storeFromLines(lines);
+  const dateResult = dateFromText(rawText);
+  const purchaseDate = dateResult.date;
+  let storeName = storeFromLines(lines);
+  let storeInferred = false;
+  const rawCompact = compactLine(rawText);
+  if (/(aeon-kyushu|AEON|AESON|イオン九州|イブオン九州)/i.test(rawText) && !/イオン/.test(storeName)) {
+    storeName = 'イオン（店舗名要確認）';
+    storeInferred = true;
+  }
   const numbers = findReceiptNumbers(lines);
   // OCRが「合計」の数字を1〜2桁に誤読することがある。
   // 小計が取れているのに合計が極端に小さい場合は、誤読した合計を採用しない。
@@ -524,7 +614,8 @@ export function parseReceiptText(rawText) {
     if (pricingMode === 'tax-included') {
       items.forEach(item => { item.paidAmount = item.printedAmount; });
       reconciled = Math.abs(items.reduce((sum, item) => sum + item.paidAmount, 0) - total) <= tolerance;
-    } else {
+    } else if (pricingMode === 'tax-excluded') {
+      // 外税が明確なときだけ、税額分を商品へ按分して税込計上額を作る。
       const delta = total - itemSum;
       const relativeDifference = Math.abs(delta) / Math.max(1, itemSum);
       if (relativeDifference <= 0.18) {
@@ -535,18 +626,27 @@ export function parseReceiptText(rawText) {
         const paidSum = items.reduce((sum, item) => sum + item.paidAmount, 0);
         if (paidSum !== total && items.length) items[items.length - 1].paidAmount += total - paidSum;
         reconciled = items.reduce((sum, item) => sum + item.paidAmount, 0) === total;
-        if (pricingMode === 'unknown' && delta !== 0) {
-          warnings.push('税・値引きの内訳を確定できなかったため、総額との差額を商品へ按分しています。');
-        }
       } else {
         items.forEach(item => { item.paidAmount = item.printedAmount; });
-        warnings.push('明細合計とレシート合計の差が大きいため、商品金額の確認が必要です。');
+        warnings.push('外税レシートですが、明細合計と実支払額の差が大きいため自動按分しませんでした。');
       }
+    } else {
+      // 内外税や合計の読取が曖昧な場合は、帳尻合わせをしない。
+      items.forEach(item => { item.paidAmount = item.printedAmount; });
+      if (Math.abs(itemSum - total) > tolerance) {
+        warnings.push('明細合計とレシート合計が一致しません。自動で金額を作らず、そのまま表示しています。実支払額または商品金額を確認してください。');
+      }
+      reconciled = Math.abs(itemSum - total) <= tolerance;
     }
   }
 
+  if (numbers.itemCountHint && numbers.itemCountHint === items.length && numbers.subtotal && Math.abs(itemSum - numbers.subtotal) > tolerance) {
+    warnings.push(`小計は ${numbers.subtotal}円 と読めましたが、${items.length}商品の明細合計は ${itemSum}円 です。どちらかのOCR誤読の可能性があるため、自動で帳尻合わせしていません。`);
+  }
   if (!purchaseDate) warnings.push('購入日を読み取れませんでした。日付を確認してください。');
+  if (dateResult.repaired) warnings.push(`曜日との矛盾から購入日を ${dateResult.original} → ${purchaseDate} に補正しました。日付を確認してください。`);
   if (!storeName) warnings.push('店舗名を読み取れませんでした。店舗名を入力してください。');
+  if (storeInferred) warnings.push('店舗ブランドのみ判定できました。店舗名を確認してください。');
   if (!items.length) warnings.push('商品明細を読み取れませんでした。商品を手動で追加してください。');
   if (items.some(item => item.inferred)) warnings.push('一部商品の価格を小計との差額から補完しました。ピンクの項目を確認してください。');
   if (zone.end === lines.length && lines.length > 8) warnings.push('小計位置を特定できませんでした。商品一覧を確認してください。');

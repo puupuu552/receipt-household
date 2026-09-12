@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="生活費レシート" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=1.4.0" />
+  <link rel="stylesheet" href="./styles.css?v=1.4.2" />
   <title>生活費レシート管理</title>
 </head>
 <body>
@@ -22,7 +22,7 @@
       <div class="header-actions">
         <span id="dbStatus" class="status-chip">準備中</span>
         <div class="header-update-row">
-          <span id="headerVersion" class="version-chip">v1.4.0</span>
+          <span id="headerVersion" class="version-chip">v1.4.2</span>
           <button id="quickUpdateBtn" type="button" class="header-update-button" aria-label="最新版を確認して更新">更新</button>
         </div>
       </div>
@@ -61,14 +61,20 @@
 
       <section id="receiptMeta" class="receipt-meta hidden" aria-label="レシート情報">
         <div class="field-grid">
-          <label class="field">
+          <div class="field">
             <span>購入日</span>
-            <input id="purchaseDate" type="date" />
-          </label>
-          <label class="field">
+            <div class="clearable-input">
+              <button id="clearPurchaseDate" type="button" class="field-clear-button" aria-label="購入日を全消去">×</button>
+              <input id="purchaseDate" type="date" />
+            </div>
+          </div>
+          <div class="field">
             <span>店舗名</span>
-            <input id="storeName" type="text" autocomplete="off" />
-          </label>
+            <div class="clearable-input">
+              <button id="clearStoreName" type="button" class="field-clear-button" aria-label="店舗名を全消去">×</button>
+              <input id="storeName" type="text" autocomplete="off" />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -76,10 +82,13 @@
       <button id="addItemBtn" type="button" class="button secondary add-item-button hidden">＋ 商品を追加</button>
 
       <section id="totalCard" class="total-card total-card-editable hidden">
-        <label class="total-edit-field" for="receiptTotal">
+        <div class="total-edit-field">
           <span class="total-label">税込・実支払額</span>
-          <input id="receiptTotal" class="money total-input" type="number" min="0" step="1" inputmode="numeric" />
-        </label>
+          <div class="clearable-input total-clearable">
+            <button id="clearReceiptTotal" type="button" class="field-clear-button" aria-label="実支払額を全消去">×</button>
+            <input id="receiptTotal" class="money total-input" type="number" min="0" step="1" inputmode="numeric" aria-label="税込・実支払額" />
+          </div>
+        </div>
         <p id="totalCheck" class="total-check"></p>
       </section>
 
@@ -132,7 +141,7 @@
       <section class="settings-card">
         <h2>アプリ更新</h2>
         <dl class="settings-list">
-          <div><dt>現在のバージョン</dt><dd id="appVersion">v1.4.0</dd></div>
+          <div><dt>現在のバージョン</dt><dd id="appVersion">v1.4.2</dd></div>
         </dl>
         <button id="updateAppBtn" type="button" class="button secondary settings-wide-button">最新版を確認・更新</button>
         <p id="updateStatus" class="muted small">今後はここから最新版へ更新できます。</p>
@@ -144,7 +153,7 @@
           <div><dt>保存先</dt><dd>この端末のIndexedDB</dd></div>
           <div><dt>レシート画像</dt><dd>保存しない</dd></div>
           <div><dt>購入データ</dt><dd>任意で月ごとに削除可能</dd></div>
-          <div><dt>分類ルール</dt><dd>購入データ削除後も保持</dd></div>
+          <div><dt>分類・商品名ルール</dt><dd>購入データ削除後も保持</dd></div>
         </dl>
       </section>
 
@@ -153,18 +162,18 @@
         <p class="muted">学習ルール: <strong id="ruleCount">0</strong>件</p>
         <div class="settings-actions">
           <button id="clearPurchasesBtn" type="button" class="button danger-outline">すべての購入データを削除</button>
-          <button id="clearRulesBtn" type="button" class="button danger-outline">学習した分類ルールをリセット</button>
+          <button id="clearRulesBtn" type="button" class="button danger-outline">学習ルールをリセット</button>
         </div>
       </section>
 
       <section class="settings-card">
         <h2>OCRについて</h2>
-        <p class="muted">v1.4.0はローカルOCR強化版です。文字・白黒補正・金額列の3通りで読み取り、数量×単価や小計との差額でも金額を補完します。補完した項目はピンクの「要確認」に残します。</p>
+        <p class="muted">v1.4.2は「勝手に帳尻を合わせない」安全側のOCR版です。OCR上の実在行だけを候補にし、不明な差額だけで架空の商品は作りません。各入力欄には×の全消去ボタンを追加しました。画像や学習内容は外部へ送信しません。</p>
       </section>
       <div id="settingsMessage" class="message hidden" aria-live="polite"></div>
     </section>
   </main>
 
-  <script type="module" src="./app.js?v=1.4.0"></script>
+  <script type="module" src="./app.js?v=1.4.2"></script>
 </body>
 </html>

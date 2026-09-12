@@ -9,9 +9,9 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js?v=1.4.0';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.4.0';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.4.0';
+} from './db.js?v=1.4.2';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.4.2';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.4.2';
 
 const APP_VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
@@ -60,11 +60,14 @@ const els = {
   ocrRawText: document.querySelector('#ocrRawText'),
   receiptMeta: document.querySelector('#receiptMeta'),
   purchaseDate: document.querySelector('#purchaseDate'),
+  clearPurchaseDate: document.querySelector('#clearPurchaseDate'),
   storeName: document.querySelector('#storeName'),
+  clearStoreName: document.querySelector('#clearStoreName'),
   itemList: document.querySelector('#itemList'),
   addItemBtn: document.querySelector('#addItemBtn'),
   totalCard: document.querySelector('#totalCard'),
   receiptTotal: document.querySelector('#receiptTotal'),
+  clearReceiptTotal: document.querySelector('#clearReceiptTotal'),
   totalCheck: document.querySelector('#totalCheck'),
   registerBtn: document.querySelector('#registerBtn'),
   entryMessage: document.querySelector('#entryMessage'),
@@ -86,6 +89,24 @@ const els = {
   clearRulesBtn: document.querySelector('#clearRulesBtn'),
   settingsMessage: document.querySelector('#settingsMessage'),
 };
+
+
+function wrapClearableInput(input, ariaLabel, onClear) {
+  const wrap = document.createElement('div');
+  wrap.className = 'clearable-input';
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'field-clear-button';
+  clear.textContent = '×';
+  clear.setAttribute('aria-label', ariaLabel);
+  clear.addEventListener('click', () => {
+    input.value = '';
+    onClear?.();
+    input.focus();
+  });
+  wrap.append(clear, input);
+  return wrap;
+}
 
 function yen(value) {
   return `¥${Number(value || 0).toLocaleString('ja-JP')}`;
@@ -171,17 +192,23 @@ function categoryByKeywords(itemName) {
 async function enrichOcrItems(parsed) {
   const rows = [];
   for (const source of parsed.items) {
-    const classification = categoryByKeywords(source.itemName);
-    const rule = await findRule(source.itemName);
+    const rawOcrName = source.ocrName || source.itemName;
+    const aliasRule = await findRule(rawOcrName);
+    const displayName = aliasRule?.correctedName || source.itemName;
+    const classification = categoryByKeywords(displayName);
+    const categoryRule = aliasRule || await findRule(displayName);
+    const learnedName = Boolean(aliasRule?.correctedName);
     rows.push({
-      itemName: source.itemName,
+      itemName: displayName,
+      ocrName: rawOcrName,
       printedAmount: integer(source.printedAmount),
       paidAmount: integer(source.paidAmount),
       aiCategory: classification.category,
-      category: rule?.category || classification.category,
+      category: categoryRule?.category || classification.category,
       manualSpecial: null,
-      reviewed: !source.inferred && (Boolean(rule) || (classification.confident && parsed.reconciled)),
-      ruleApplied: Boolean(rule),
+      reviewed: !source.inferred && (learnedName || Boolean(categoryRule) || (classification.confident && parsed.reconciled)),
+      ruleApplied: Boolean(categoryRule),
+      nameRuleApplied: learnedName,
       taxRateHint: source.taxRateHint || null,
     });
   }
@@ -434,7 +461,7 @@ function renderDraft() {
     const state = document.createElement('span');
     if (item.reviewed) {
       state.className = 'item-state';
-      state.textContent = item.ruleApplied ? '学習ルール適用' : '自動判定済み';
+      state.textContent = item.nameRuleApplied ? '商品名学習を適用' : (item.ruleApplied ? '学習ルール適用' : '自動判定済み');
     } else {
       state.className = 'review-badge';
       state.textContent = '⚠ 要確認';
@@ -444,7 +471,7 @@ function renderDraft() {
     price.textContent = yen(item.paidAmount);
     head.append(state, price);
 
-    const nameField = document.createElement('label');
+    const nameField = document.createElement('div');
     nameField.className = 'field';
     nameField.innerHTML = '<span>商品名</span>';
     const nameInput = document.createElement('input');
@@ -454,9 +481,12 @@ function renderDraft() {
     nameInput.addEventListener('input', () => {
       draft.items[index].itemName = nameInput.value;
     });
-    nameField.append(nameInput);
+    nameField.append(wrapClearableInput(nameInput, '商品名を全消去', () => {
+      draft.items[index].itemName = '';
+      draft.items[index].reviewed = false;
+    }));
 
-    const categoryField = document.createElement('label');
+    const categoryField = document.createElement('div');
     categoryField.className = 'field';
     categoryField.innerHTML = '<span>自動カテゴリ</span>';
     const select = document.createElement('select');
@@ -476,7 +506,7 @@ function renderDraft() {
     });
     categoryField.append(select);
 
-    const amountField = document.createElement('label');
+    const amountField = document.createElement('div');
     amountField.className = 'field amount-field';
     amountField.innerHTML = '<span>税込計上額</span>';
     const amountInput = document.createElement('input');
@@ -485,12 +515,21 @@ function renderDraft() {
     amountInput.step = '1';
     amountInput.inputMode = 'numeric';
     amountInput.value = integer(item.paidAmount);
-    amountInput.addEventListener('change', () => {
+    amountInput.addEventListener('input', () => {
       draft.items[index].paidAmount = integer(amountInput.value);
-      draft.items[index].reviewed = true;
+      updateTotalCheck();
+      price.textContent = yen(draft.items[index].paidAmount);
+    });
+    amountInput.addEventListener('change', () => {
+      draft.items[index].reviewed = amountInput.value !== '';
       renderDraft();
     });
-    amountField.append(amountInput);
+    amountField.append(wrapClearableInput(amountInput, '税込計上額を全消去', () => {
+      draft.items[index].paidAmount = 0;
+      draft.items[index].reviewed = false;
+      price.textContent = yen(0);
+      updateTotalCheck();
+    }));
 
     const manualLabel = document.createElement('span');
     manualLabel.className = 'manual-label';
@@ -597,6 +636,7 @@ async function registerDraft() {
     receiptId,
     monthKey,
     itemName: item.itemName.trim(),
+    ocrName: (item.ocrName || item.itemName).trim(),
     printedAmount: integer(item.printedAmount),
     paidAmount: integer(item.paidAmount),
     aiCategory: item.aiCategory,
@@ -880,6 +920,22 @@ function bindEvents() {
   els.clearDraftBtn.addEventListener('click', clearDraft);
   els.addItemBtn.addEventListener('click', addBlankItem);
   els.registerBtn.addEventListener('click', registerDraft);
+  els.clearPurchaseDate.addEventListener('click', () => {
+    els.purchaseDate.value = '';
+    if (draft) draft.purchaseDate = '';
+    els.purchaseDate.focus();
+  });
+  els.clearStoreName.addEventListener('click', () => {
+    els.storeName.value = '';
+    if (draft) draft.storeName = '';
+    els.storeName.focus();
+  });
+  els.clearReceiptTotal.addEventListener('click', () => {
+    els.receiptTotal.value = '';
+    if (draft) draft.total = 0;
+    updateTotalCheck();
+    els.receiptTotal.focus();
+  });
   els.receiptTotal.addEventListener('input', () => {
     if (!draft) return;
     draft.total = integer(els.receiptTotal.value);

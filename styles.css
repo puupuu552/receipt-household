@@ -186,3 +186,20 @@ input[type="month"]::-webkit-date-and-time-value {
   .total-edit-field { align-items: flex-start; flex-direction: column; }
   .total-input { width: 100%; max-width: 100%; text-align: left; }
 }
+
+/* v1.4.2: editable field clear buttons */
+.clearable-input { position: relative; width: 100%; min-width: 0; }
+.clearable-input > input { padding-left: 48px; }
+.field-clear-button {
+  position: absolute; left: 7px; top: 50%; transform: translateY(-50%); z-index: 2;
+  width: 34px; min-width: 34px; height: 34px; min-height: 34px; padding: 0;
+  border: 1px solid var(--border); border-radius: 999px; background: #f4efe6; color: #6f6a63;
+  font-size: 22px; line-height: 1; font-weight: 700; display: grid; place-items: center;
+}
+.field-clear-button:active { transform: translateY(-50%) scale(.96); }
+.total-clearable { flex: 0 1 210px; width: min(210px, 58%); }
+.total-clearable .total-input { width: 100%; max-width: 100%; padding-left: 48px; }
+.total-clearable .total-input:focus { padding-left: 48px; }
+@media (max-width: 390px) {
+  .total-clearable { width: 100%; max-width: 100%; }
+}
