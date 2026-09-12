@@ -188,11 +188,21 @@ function findReceiptNumbers(lines) {
   let subtotal = null;
   let total = null;
   let directTax = null;
+  let taxIncluded = false;
+  let taxExcluded = false;
+  let itemCountHint = null;
   const taxBreakdown = [];
 
   for (const line of lines) {
     const compact = compactLine(line);
     const amount = moneyAtEnd(line);
+
+    const countMatch = compact.match(/(?:小計)?(\d{1,2})点/);
+    if (countMatch) {
+      const count = Number(countMatch[1]);
+      if (count > 0 && count < 100) itemCountHint = count;
+    }
+
     if (amount === null) continue;
 
     if (/小計/.test(compact) && !/対象額/.test(compact)) subtotal = amount;
@@ -201,7 +211,20 @@ function findReceiptNumbers(lines) {
       total = amount;
     }
 
-    if (/(内,?消費税等|消費税等|消費税|外税|内税)/.test(compact) && !/(対象|税率)/.test(compact)) {
+    if (/(内,?消費税等|内消費税等|内税)/.test(compact) && !/(対象|税率)/.test(compact)) {
+      directTax = Math.abs(amount);
+      taxIncluded = true;
+      continue;
+    }
+
+    if (/(外税)/.test(compact) && !/(対象|税率)/.test(compact)) {
+      directTax = Math.abs(amount);
+      taxExcluded = true;
+      continue;
+    }
+
+    // 「消費税等」だけの行は店舗によって内税/外税の表記差があるので税額だけ保持。
+    if (/(消費税等|消費税)/.test(compact) && !/(対象|税率)/.test(compact)) {
       directTax = Math.abs(amount);
       continue;
     }
@@ -212,7 +235,7 @@ function findReceiptNumbers(lines) {
   }
 
   const tax = directTax ?? taxBreakdown.reduce((sum, value) => sum + value, 0);
-  return { subtotal, total, tax };
+  return { subtotal, total, tax, taxIncluded, taxExcluded, itemCountHint };
 }
 
 function isReceiptStart(line) {
@@ -350,6 +373,25 @@ function parseItems(lines, numbers) {
     }
   }
 
+  // OCRが価格列だけ落とした場合、
+  // 「小計 n点」と既読商品の差額から、最後の未価格商品を1件だけ復元する。
+  // 金額は推測扱いなので必ず要確認にする。
+  const currentSum = items.reduce((sum, item) => sum + item.printedAmount, 0) + receiptLevelDiscount;
+  const targetSubtotal = Number(numbers.subtotal || 0);
+  const missingCount = Number(numbers.itemCountHint || 0) - items.length;
+  const remainder = targetSubtotal - currentSum;
+  if (targetSubtotal > 0 && remainder > 0 && missingCount === 1) {
+    const inferredName = looksLikeHumanItemName(pendingName) ? cleanItemName(pendingName) : '商品名を確認';
+    items.push({
+      itemName: inferredName,
+      printedAmount: remainder,
+      paidAmount: remainder,
+      taxRateHint: null,
+      discountAmount: 0,
+      inferred: true,
+    });
+  }
+
   return { items, receiptLevelDiscount, zone: { start, end } };
 }
 
@@ -376,9 +418,22 @@ export function parseReceiptText(rawText) {
   const tax = numbers.tax;
 
   if (total === null) {
-    if (tax > 0 && subtotal > 0) total = subtotal + tax;
-    else total = itemSum;
-    warnings.push('合計金額を明確に読み取れなかったため、明細から仮計算しています。');
+    if (subtotal > 0 && numbers.taxIncluded) {
+      // マツキヨ等：小計530円の中に内税44円が含まれている。530+44にはしない。
+      total = subtotal;
+    } else if (subtotal > 0 && numbers.taxExcluded && tax > 0) {
+      total = subtotal + tax;
+    } else if (subtotal > 0 && items.length && Math.abs(itemSum - subtotal) <= Math.max(3, Math.round(subtotal * 0.02))) {
+      // 商品明細が小計と一致する場合は、税込表示レシートの可能性を優先。
+      total = subtotal;
+    } else if (subtotal > 0 && tax > 0) {
+      // 内外税が判別不能な場合、むやみに税を足さず小計を実支払候補にする。
+      total = subtotal;
+      warnings.push('消費税が内税か外税か確定できなかったため、小計を実支払額として採用しています。');
+    } else {
+      total = subtotal > 0 ? subtotal : itemSum;
+    }
+    warnings.push('合計金額を明確に読み取れなかったため、明細・小計から仮計算しています。');
   }
 
   if (subtotal === null || subtotal <= 0) subtotal = itemSum;
@@ -420,6 +475,7 @@ export function parseReceiptText(rawText) {
   if (!purchaseDate) warnings.push('購入日を読み取れませんでした。日付を確認してください。');
   if (!storeName) warnings.push('店舗名を読み取れませんでした。店舗名を入力してください。');
   if (!items.length) warnings.push('商品明細を読み取れませんでした。商品を手動で追加してください。');
+  if (items.some(item => item.inferred)) warnings.push('一部商品の価格を小計との差額から補完しました。ピンクの項目を確認してください。');
   if (zone.end === lines.length && lines.length > 8) warnings.push('小計位置を特定できませんでした。商品一覧を確認してください。');
 
   return {
@@ -562,6 +618,83 @@ async function preprocessImage(file, onProgress) {
   return blob;
 }
 
+
+async function makeBinaryVariant(blob) {
+  const file = blob instanceof File ? blob : new File([blob], 'receipt-prepared.jpg', { type: blob.type || 'image/jpeg' });
+  const image = await imageElementFromFile(file);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  if (!ctx) return blob;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, 0, 0);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  // Otsuの簡易実装。レシートの黒文字/白地を二値化し、影や木目を減らす。
+  const hist = new Array(256).fill(0);
+  let count = 0;
+  for (let i = 0; i < data.length; i += 16) {
+    const lum = Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
+    hist[lum] += 1;
+    count += 1;
+  }
+  let sum = 0;
+  for (let i = 0; i < 256; i += 1) sum += i * hist[i];
+  let sumB = 0;
+  let weightB = 0;
+  let bestVariance = -1;
+  let threshold = 185;
+  for (let t = 0; t < 256; t += 1) {
+    weightB += hist[t];
+    if (!weightB) continue;
+    const weightF = count - weightB;
+    if (!weightF) break;
+    sumB += t * hist[t];
+    const meanB = sumB / weightB;
+    const meanF = (sum - sumB) / weightF;
+    const between = weightB * weightF * (meanB - meanF) ** 2;
+    if (between > bestVariance) {
+      bestVariance = between;
+      threshold = t;
+    }
+  }
+  threshold = clamp(threshold + 18, 145, 215);
+
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    const value = lum < threshold ? 0 : 255;
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
+    data[i + 3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  const out = await new Promise((resolve, reject) => {
+    canvas.toBlob(value => value ? resolve(value) : reject(new Error('二値化画像の生成に失敗しました。')), 'image/png');
+  });
+  canvas.width = 1;
+  canvas.height = 1;
+  return out;
+}
+
+function textQualityScore(text) {
+  const value = String(text || '');
+  let score = 0;
+  if (/20\d{2}.*\d{1,2}.*\d{1,2}/.test(value)) score += 8;
+  if (/(領収証|領収書|お買上|お買い上げ)/.test(value)) score += 6;
+  if (/小計/.test(value)) score += 8;
+  if (/合計/.test(value)) score += 5;
+  const moneyLike = value.match(/[¥￥]?\s*\d{2,6}\s*(?:円|※|\*|＊)?/g)?.length || 0;
+  score += Math.min(24, moneyLike * 2);
+  score += Math.min(18, (value.match(/[ぁ-んァ-ヶ一-龠]/g)?.length || 0) / 8);
+  return score;
+}
+
 function progressMessage(status, progress) {
   const percent = Math.round(clamp(Number(progress || 0), 0, 1) * 100);
   if (/loading tesseract core/i.test(status)) return 'OCRエンジンを読み込み中…';
@@ -575,6 +708,7 @@ function progressMessage(status, progress) {
 export async function recognizeReceiptImage(file, onProgress) {
   if (!(file instanceof Blob)) throw new Error('レシート画像を選択してください。');
   const prepared = await preprocessImage(file, onProgress);
+  const binary = await makeBinaryVariant(prepared);
 
   onProgress?.({ phase: 'engine', progress: 0.1, message: 'OCRエンジンを読み込み中…' });
   let worker;
@@ -587,26 +721,41 @@ export async function recognizeReceiptImage(file, onProgress) {
       logger: event => {
         const p = Number(event?.progress || 0);
         const status = String(event?.status || '');
-        const mapped = /recognizing text/i.test(status) ? 0.35 + p * 0.6 : 0.12 + p * 0.2;
-        onProgress?.({ phase: status, progress: clamp(mapped, 0.1, 0.95), message: progressMessage(status, p) });
+        const mapped = /recognizing text/i.test(status) ? 0.22 + p * 0.34 : 0.12 + p * 0.09;
+        onProgress?.({ phase: status, progress: clamp(mapped, 0.1, 0.56), message: progressMessage(status, p) });
       },
     });
 
-    try {
-      await worker.setParameters({
-        tessedit_pageseg_mode: '4',
-        preserve_interword_spaces: '1',
-        user_defined_dpi: '300',
-      });
-    } catch {
-      // Tesseract buildによって未対応パラメータがあってもOCR自体は継続する。
-    }
+    const runPass = async (imageBlob, psm, label, base, span) => {
+      try {
+        await worker.setParameters({
+          tessedit_pageseg_mode: String(psm),
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        });
+      } catch { /* noop */ }
+      onProgress?.({ phase: 'recognize', progress: base, message: `${label}で文字を読み取り中…` });
+      const result = await worker.recognize(imageBlob);
+      onProgress?.({ phase: 'recognize', progress: base + span, message: `${label}の読み取り完了` });
+      return {
+        text: result?.data?.text || '',
+        confidence: Number(result?.data?.confidence || 0),
+      };
+    };
 
-    const result = await worker.recognize(prepared);
-    onProgress?.({ phase: 'done', progress: 1, message: '読み取り完了。内容を確認してください。' });
+    // 1回目: レイアウト重視。2回目: 二値化+単一ブロックで価格列の拾い漏れを補う。
+    const first = await runPass(prepared, 4, '1回目', 0.22, 0.35);
+    const second = await runPass(binary, 6, '2回目（精度補正）', 0.60, 0.34);
+
+    const firstScore = textQualityScore(first.text) + first.confidence * 0.12;
+    const secondScore = textQualityScore(second.text) + second.confidence * 0.12;
+    const best = secondScore > firstScore ? second : first;
+
+    onProgress?.({ phase: 'done', progress: 1, message: '2通りの読み取りを比較しました。内容を確認してください。' });
     return {
-      text: result?.data?.text || '',
-      confidence: Number(result?.data?.confidence || 0),
+      text: best.text,
+      confidence: best.confidence,
+      candidates: [first, second],
     };
   } finally {
     if (worker) {
@@ -614,3 +763,4 @@ export async function recognizeReceiptImage(file, onProgress) {
     }
   }
 }
+

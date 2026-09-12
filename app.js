@@ -9,9 +9,9 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js?v=1.3.4';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.4';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.4';
+} from './db.js?v=1.3.5';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.5';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.5';
 
 const APP_VERSION = '1.3.4';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
@@ -181,7 +181,7 @@ async function enrichOcrItems(parsed) {
       aiCategory: classification.category,
       category: rule?.category || classification.category,
       manualSpecial: null,
-      reviewed: Boolean(rule) || (classification.confident && parsed.reconciled),
+      reviewed: !source.inferred && (Boolean(rule) || (classification.confident && parsed.reconciled)),
       ruleApplied: Boolean(rule),
       taxRateHint: source.taxRateHint || null,
     });
@@ -237,6 +237,38 @@ function updateOcrProgress(event) {
   els.ocrStatusText.textContent = event?.message || 'OCR処理中…';
 }
 
+
+function parsedQuality(parsed) {
+  if (!parsed) return -1e9;
+  const itemSum = (parsed.items || []).reduce((sum, item) => sum + integer(item.printedAmount), 0);
+  const target = integer(parsed.subtotal || parsed.total);
+  let score = 0;
+  if (parsed.purchaseDate) score += 12;
+  if (parsed.storeName) score += 6;
+  if (parsed.subtotal > 0) score += 12;
+  if (parsed.total > 0) score += 10;
+  score += Math.min(30, (parsed.items?.length || 0) * 10);
+  if (target > 0 && itemSum > 0) {
+    const ratio = Math.abs(itemSum - target) / target;
+    score += Math.max(-20, 25 - ratio * 80);
+  }
+  if (parsed.reconciled) score += 18;
+  score -= (parsed.warnings?.length || 0) * 2;
+  return score;
+}
+
+function chooseBestParsedRecognition(recognition) {
+  const candidates = Array.isArray(recognition?.candidates) && recognition.candidates.length
+    ? recognition.candidates
+    : [{ text: recognition?.text || '', confidence: recognition?.confidence || 0 }];
+  const parsedCandidates = candidates.map(candidate => {
+    const parsed = parseReceiptText(candidate.text || '');
+    return { candidate, parsed, score: parsedQuality(parsed) + Number(candidate.confidence || 0) * 0.08 };
+  });
+  parsedCandidates.sort((a, b) => b.score - a.score);
+  return parsedCandidates[0] || { candidate: candidates[0], parsed: parseReceiptText(candidates[0]?.text || ''), score: 0 };
+}
+
 async function processReceiptImage(file) {
   if (!file || ocrBusy) return;
   clearDraft();
@@ -248,8 +280,10 @@ async function processReceiptImage(file) {
 
   try {
     const recognition = await recognizeReceiptImage(file, updateOcrProgress);
-    const parsed = parseReceiptText(recognition.text);
-    if (recognition.confidence > 0 && recognition.confidence < 55) {
+    const selected = chooseBestParsedRecognition(recognition);
+    const parsed = selected.parsed;
+    const selectedRecognition = selected.candidate || recognition;
+    if (selectedRecognition.confidence > 0 && selectedRecognition.confidence < 55) {
       parsed.warnings = [...(parsed.warnings || []), 'OCRの文字認識精度が低めです。商品名と金額を重点的に確認してください。'];
     }
     const items = await enrichOcrItems(parsed);
@@ -262,8 +296,8 @@ async function processReceiptImage(file) {
       pricingMode: parsed.pricingMode,
       items,
       warnings: parsed.warnings || [],
-      rawText: recognition.text || '',
-      ocrConfidence: recognition.confidence,
+      rawText: selectedRecognition.text || recognition.text || '',
+      ocrConfidence: selectedRecognition.confidence || recognition.confidence,
     };
     renderDraft();
     updateOcrProgress({ progress: 1, message: '読み取り完了。ピンクの項目と合計を確認してください。' });
