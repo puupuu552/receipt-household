@@ -1,4 +1,55 @@
-const TESSERACT_MODULE_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.esm.min.js';
+const TESSERACT_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let tesseractLoaderPromise = null;
+
+function loadTesseractBrowser() {
+  if (globalThis.Tesseract?.createWorker) return Promise.resolve(globalThis.Tesseract);
+  if (tesseractLoaderPromise) return tesseractLoaderPromise;
+
+  tesseractLoaderPromise = new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('OCRエンジンの読み込みがタイムアウトしました。通信状態を確認して、もう一度お試しください。'));
+    }, 30000);
+
+    const finish = () => {
+      clearTimeout(timeoutId);
+      if (globalThis.Tesseract?.createWorker) {
+        resolve(globalThis.Tesseract);
+      } else {
+        reject(new Error('OCRエンジンを初期化できませんでした。アプリを最新版へ更新して再度お試しください。'));
+      }
+    };
+
+    const fail = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('OCRエンジンを読み込めませんでした。インターネット接続を確認してください。'));
+    };
+
+    const existing = document.querySelector('script[data-receipt-tesseract]');
+    if (existing) {
+      if (globalThis.Tesseract?.createWorker) {
+        finish();
+      } else {
+        existing.addEventListener('load', finish, { once: true });
+        existing.addEventListener('error', fail, { once: true });
+      }
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = TESSERACT_SCRIPT_URL;
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.dataset.receiptTesseract = '1';
+    script.addEventListener('load', finish, { once: true });
+    script.addEventListener('error', fail, { once: true });
+    document.head.appendChild(script);
+  }).catch(error => {
+    tesseractLoaderPromise = null;
+    throw error;
+  });
+
+  return tesseractLoaderPromise;
+}
 
 const SKIP_ITEM_PATTERNS = [
   /^(小計|合計|総合計|お買上|お買い上げ|支払|現金|お釣|おつり|釣銭|WAON|クレジット|電子マネー)/i,
@@ -307,7 +358,14 @@ export async function recognizeReceiptImage(file, onProgress) {
   onProgress?.({ phase: 'engine', progress: 0.1, message: 'OCRエンジンを読み込み中…' });
   let worker;
   try {
-    const { createWorker } = await import(TESSERACT_MODULE_URL);
+    // Safari / iOS PWA では Tesseract.js の ESM CDN build が
+    // createWorker を named export として返さない環境があるため、
+    // 公式CDNのブラウザbuildを読み込み、globalThis.Tesseract を使う。
+    const Tesseract = await loadTesseractBrowser();
+    const createWorker = Tesseract?.createWorker;
+    if (typeof createWorker !== 'function') {
+      throw new Error('OCRエンジンを開始できませんでした。');
+    }
     worker = await createWorker(['jpn', 'eng'], 1, {
       logger: event => {
         const p = Number(event?.progress || 0);

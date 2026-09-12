@@ -9,11 +9,11 @@ import {
   deleteMonth,
   clearPurchaseData,
   clearRules,
-} from './db.js';
-import { buildXlsx, saveXlsxFile } from './xlsx-export.js';
-import { recognizeReceiptImage, parseReceiptText } from './ocr.js';
+} from './db.js?v=1.3.2';
+import { buildXlsx, saveXlsxFile } from './xlsx-export.js?v=1.3.2';
+import { recognizeReceiptImage, parseReceiptText } from './ocr.js?v=1.3.2';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.2';
 const AUTO_CATEGORIES = ['食費', 'お菓子・嗜好品', '果物', '野菜', '日用品'];
 const ALL_CATEGORIES = [...AUTO_CATEGORIES, '母向け', 'その他'];
 
@@ -78,6 +78,8 @@ const els = {
   monthlyMessage: document.querySelector('#monthlyMessage'),
   exportExcelBtn: document.querySelector('#exportExcelBtn'),
   appVersion: document.querySelector('#appVersion'),
+  headerVersion: document.querySelector('#headerVersion'),
+  quickUpdateBtn: document.querySelector('#quickUpdateBtn'),
   updateAppBtn: document.querySelector('#updateAppBtn'),
   updateStatus: document.querySelector('#updateStatus'),
   ruleCount: document.querySelector('#ruleCount'),
@@ -259,8 +261,13 @@ async function processReceiptImage(file) {
     renderDraft();
     updateOcrProgress({ progress: 1, message: '読み取り完了。ピンクの項目と合計を確認してください。' });
   } catch (error) {
-    showMessage(els.entryMessage, `OCRに失敗しました: ${error.message}\n写真を明るく、レシート全体が入るように撮り直してください。`, true);
-    els.ocrStatusText.textContent = 'OCRに失敗しました';
+    const detail = String(error?.message || error || '不明なエラー');
+    const engineError = /(OCRエンジン|Tesseract|createWorker|読み込めません|タイムアウト|初期化)/i.test(detail);
+    const guidance = engineError
+      ? '写真の内容ではなくOCRエンジン側のエラーです。通信状態を確認し、設定の「最新版を確認・更新」を押してから再度お試しください。'
+      : '写真を明るく、レシート全体が入るように撮り直してください。';
+    showMessage(els.entryMessage, `OCRに失敗しました: ${detail}\n${guidance}`, true);
+    els.ocrStatusText.textContent = engineError ? 'OCRエンジンの起動に失敗しました' : 'OCRに失敗しました';
   } finally {
     setOcrBusy(false);
     els.receiptCameraInput.value = '';
@@ -745,6 +752,7 @@ async function deleteSelectedMonth() {
 
 async function refreshSettings() {
   els.appVersion.textContent = `v${APP_VERSION}`;
+  els.headerVersion.textContent = `v${APP_VERSION}`;
   try {
     const rules = await listRules();
     els.ruleCount.textContent = String(rules.length);
@@ -767,37 +775,65 @@ async function clearAllRules() {
   showMessage(els.settingsMessage, '分類ルールをリセットしました。');
 }
 
+async function clearAppCaches() {
+  if (!('caches' in window)) return;
+  const keys = await caches.keys();
+  await Promise.all(
+    keys
+      .filter(key => key.startsWith('receipt-pwa-'))
+      .map(key => caches.delete(key))
+  );
+}
+
+function setUpdateUi(message, busy = false) {
+  els.updateAppBtn.disabled = busy;
+  els.quickUpdateBtn.disabled = busy;
+  els.updateStatus.textContent = message;
+  els.quickUpdateBtn.textContent = busy ? '確認中…' : '更新';
+}
+
 async function checkAndUpdateApp() {
-  els.updateAppBtn.disabled = true;
-  els.updateStatus.textContent = '最新版を確認しています…';
+  setUpdateUi('最新版を確認しています…', true);
   try {
     const response = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('バージョン情報を取得できませんでした。');
     const { version: latest } = await response.json();
-    if (!latest || latest === APP_VERSION) {
-      els.updateStatus.textContent = `v${APP_VERSION} が最新版です。`;
+    if (!latest) throw new Error('バージョン情報が不正です。');
+
+    if (latest === APP_VERSION) {
+      // 同じバージョンでもService Workerに更新確認をかける。
+      const registration = 'serviceWorker' in navigator
+        ? await navigator.serviceWorker.getRegistration()
+        : null;
+      if (registration) await registration.update().catch(() => {});
+      setUpdateUi(`v${APP_VERSION} が最新版です。`);
+      els.quickUpdateBtn.textContent = '最新';
+      setTimeout(() => { els.quickUpdateBtn.textContent = '更新'; }, 1800);
       return;
     }
 
-    els.updateStatus.textContent = `v${latest} を検出しました。更新しています…`;
-    if (!('serviceWorker' in navigator)) {
-      location.reload();
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.getRegistration();
-    if (!registration) {
-      location.reload();
-      return;
-    }
-
+    setUpdateUi(`v${latest} を検出しました。更新しています…`, true);
     updateReloadRequested = true;
-    await registration.update();
-    setTimeout(() => location.reload(), 3500);
+
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (registration) {
+        await registration.update().catch(() => {});
+        const waiting = registration.waiting;
+        if (waiting) waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    }
+
+    // 古いapp.js / ocr.jsが残らないよう、アプリ用Cache Storageだけ破棄する。
+    // IndexedDB（家計データ）は削除しない。
+    await clearAppCaches();
+
+    const next = new URL('./', location.href);
+    next.searchParams.set('v', latest);
+    next.searchParams.set('t', String(Date.now()));
+    location.replace(next.href);
   } catch (error) {
-    els.updateStatus.textContent = `更新確認に失敗しました: ${error.message}`;
-  } finally {
-    els.updateAppBtn.disabled = false;
+    setUpdateUi(`更新確認に失敗しました: ${error.message}`);
   }
 }
 
@@ -820,6 +856,7 @@ function bindEvents() {
   els.exportExcelBtn.addEventListener('click', exportSelectedMonth);
   els.deleteMonthBtn.addEventListener('click', deleteSelectedMonth);
   els.updateAppBtn.addEventListener('click', checkAndUpdateApp);
+  els.quickUpdateBtn.addEventListener('click', checkAndUpdateApp);
   els.clearPurchasesBtn.addEventListener('click', clearAllPurchases);
   els.clearRulesBtn.addEventListener('click', clearAllRules);
 }
@@ -841,6 +878,7 @@ async function init() {
   bindEvents();
   els.monthPicker.value = currentMonthKey();
   els.appVersion.textContent = `v${APP_VERSION}`;
+  els.headerVersion.textContent = `v${APP_VERSION}`;
 
   if (!('indexedDB' in window)) {
     setDbStatus('保存不可', 'error');

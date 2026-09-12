@@ -1,12 +1,12 @@
-const CACHE_NAME = 'receipt-pwa-v1-3-0';
+const CACHE_NAME = 'receipt-pwa-v1-3-2';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
-  './db.js',
-  './ocr.js',
-  './xlsx-export.js',
+  './styles.css?v=1.3.2',
+  './app.js?v=1.3.2',
+  './db.js?v=1.3.2',
+  './ocr.js?v=1.3.2',
+  './xlsx-export.js?v=1.3.2',
   './version.json',
   './manifest.webmanifest',
   './icon-192.png',
@@ -46,4 +46,8 @@ self.addEventListener('fetch', event => {
       throw new Error('offline');
     }
   })());
+});
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });

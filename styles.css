@@ -33,6 +33,13 @@ input:focus, select:focus, button:focus-visible { outline: 3px solid color-mix(i
 .status-chip.ready { background: var(--green-soft); color: var(--green-dark); }
 .status-chip.error { background: var(--pink); color: var(--pink-strong); }
 
+.app-header > div:first-child { min-width: 0; }
+.header-actions { display: grid; justify-items: end; gap: 7px; flex: 0 0 auto; }
+.header-update-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.version-chip { color: var(--muted); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.header-update-button { min-height: 44px; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 12px; padding: 7px 11px; font-size: 12px; font-weight: 900; }
+.header-update-button:disabled { opacity: .6; }
+
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .tab { border: 1px solid var(--border); background: var(--card); border-radius: 12px; padding: 8px; font-weight: 800; color: var(--text); }
 .tab.is-active { background: var(--green); color: white; border-color: var(--green); }
@@ -173,6 +180,9 @@ input[type="month"]::-webkit-date-and-time-value {
 #updateStatus { margin: 8px 0 0; }
 
 @media (max-width: 390px) {
+  .app-header { gap: 8px; }
+  .header-actions { gap: 5px; }
+  .header-update-button { padding-inline: 9px; }
   .total-edit-field { align-items: flex-start; flex-direction: column; }
   .total-input { width: 100%; max-width: 100%; text-align: left; }
 }
