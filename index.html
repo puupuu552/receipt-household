@@ -118,7 +118,7 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 .storageState strong{color:var(--exp2)}
 
 
-/* v1.4 見やすさ調整：元サイズの約1.2倍 ---------------------------- */
+/* v1.5 見やすさ調整：元サイズの約1.2倍 ---------------------------- */
 body{font-size:17px;line-height:1.5}
 .wrap{max-width:540px;padding:12px}
 .card{border-radius:16px;padding:16px 14px;margin-bottom:12px}
@@ -192,7 +192,7 @@ body{font-size:17px;line-height:1.5}
       <label style="grid-column:1/-1">店舗名<input id="store" placeholder="例 イオン" oninput="renderStoreSuggestions()"></label>
     </div>
     <div id="storeSuggest" class="storeSuggest"></div>
-    <div class="grp ie"><div class="h" id="catGroupTitle">家のカテゴリ</div><div class="cats" id="catsIe"></div><div class="cats hidden" id="catsHaha"></div></div>
+    <div class="grp ie" id="categoryGroup"><div class="h" id="catGroupTitle">家のカテゴリ</div><div class="cats" id="catsIe"></div><div class="cats hidden" id="catsHaha"></div></div>
     <input id="itemName" placeholder="商品名（任意）">
     <input class="memo" id="memo" placeholder="メモ（任意）">
 
@@ -307,7 +307,7 @@ body{font-size:17px;line-height:1.5}
     普段の記録はこの端末のブラウザ内だけに保存され、外部へ送信しません。
     <div id="storageState" class="storageState">保存領域を確認中…</div>
     <div style="margin-top:4px">月末だけCSVとバックアップJSONを保存してください。</div>
-    <div style="margin-top:4px">家計メモ・レシート手入力 v1.4</div>
+    <div style="margin-top:4px">家計メモ・レシート手入力 v1.5</div>
   </div>
 </div>
 
@@ -831,6 +831,8 @@ function onWallet(){
   document.getElementById("catsIe").classList.toggle("hidden",g!=="ie");
   document.getElementById("catsHaha").classList.toggle("hidden",g!=="haha");
   document.getElementById("catGroupTitle").textContent=(g==="ie"?"家":"母")+"のカテゴリ";
+  var group=document.getElementById("categoryGroup");
+  if(group) group.className="grp "+(g==="haha"?"haha":"ie");
   if(pick&&pick.g!==g) pick=null; render();
 }
 function receiptRows(){return receiptId?recs.filter(function(r){return r.rid===receiptId;}):[];}
