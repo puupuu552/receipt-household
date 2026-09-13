@@ -116,6 +116,56 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 .receiptDone{margin-top:8px}.storeSuggest{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.storeSuggest button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 9px;font-size:11px;color:var(--soft)}
 .storageState{margin-top:8px;text-align:center;font-size:11px;color:var(--soft);line-height:1.7}
 .storageState strong{color:var(--exp2)}
+
+
+/* v1.3 見やすさ調整 -------------------------------------------------- */
+body{font-size:21px;line-height:1.55}
+.wrap{max-width:620px;padding:16px}
+.card{border-radius:20px;padding:20px 18px;margin-bottom:16px}
+.cardTitle{font-size:22px;font-weight:800;color:var(--ink);letter-spacing:.04em;
+  border-left:5px solid var(--bal);padding:3px 0 3px 11px;line-height:1.35}
+.subTitle{font-size:18px;font-weight:700;color:var(--soft);letter-spacing:.08em;margin-bottom:12px}
+.ttl{font-size:18px}
+.sec{gap:12px;margin-bottom:15px}
+.mini{padding:9px 15px;font-size:18px;border-radius:11px;white-space:nowrap}
+.note{font-size:17px;line-height:1.8;margin-top:13px}
+.mon{margin:4px 2px 14px}
+.mon button{font-size:27px;padding:8px 18px}
+.mon .lbl{font-size:22px}.mon .lbl b{font-size:31px}
+.dline{gap:10px;padding:13px 14px;border-radius:14px;margin-bottom:8px}
+.dline .big{font-size:28px}
+.dline input[type=date]{font-size:19px;padding:10px}
+.dline .todayBtn{font-size:18px;padding:10px 14px}
+.receiptHead{gap:10px;margin-bottom:12px}
+.receiptHead label{font-size:17px;gap:6px}
+.receiptHead input,.receiptHead select{padding:12px;font-size:20px;border-radius:12px}
+.grp{margin-top:14px;padding:12px 12px 14px;border-radius:15px}
+.grp .h{font-size:17px;margin-bottom:11px}
+.cats{column-gap:8px;row-gap:10px;align-items:stretch}
+.cats button{font-size:19px;line-height:1.25;padding:10px 14px;margin:0;min-height:46px;display:flex;align-items:center}
+#itemName,.memo{font-size:20px;padding:13px;border-radius:12px;margin-top:12px}
+.amtbox{margin-top:16px;padding-top:15px}
+.amt{gap:12px;padding:10px 15px;border-radius:15px}
+.amt .y{font-size:34px}.amt input{font-size:46px;line-height:1.15}
+.taxrow{gap:8px;margin-top:10px}.taxrow button{font-size:18px;padding:8px 15px}.taxrow .hint{font-size:16px}
+.btns{gap:10px;margin-top:14px}.btns button{font-size:21px;padding:15px 12px;border-radius:14px}
+.flash{font-size:18px;margin-top:11px;min-height:22px}
+.editing{font-size:18px;padding:12px 14px}
+.matchbox{font-size:18px;line-height:1.7;padding:12px 14px;border-radius:12px}
+.storeSuggest{gap:8px;row-gap:9px;margin:8px 0 2px}.storeSuggest button{font-size:17px;padding:8px 12px}
+.storeSuggest button.more{font-weight:700;color:var(--bal);border-color:#B9CDDE;background:#F4F8FC}
+.brow{padding:11px 2px}.brow .t{font-size:19px;gap:8px;flex-wrap:wrap}.brow .t .use{font-size:17px}.brow .t .left{font-size:20px}
+.brow .bb{height:7px;margin-top:7px}.grpline{font-size:17px;margin:17px 0 7px}.gsum{font-size:18px}.gsum b{font-size:25px}
+.line{gap:8px;padding:13px 0;font-size:19px;flex-wrap:wrap}.line .d{font-size:16px;width:46px}.line .who{font-size:15px}.line .tag{font-size:16px}.line .m{font-size:17px;min-width:120px}.line .x{font-size:25px}
+.row2{gap:10px}.row2 input{font-size:20px;padding:12px}.oh{font-size:17px;margin-top:18px}.set input{font-size:18px;padding:7px;width:105px}
+#pm{font-size:22px;padding:14px}textarea{font-size:17px;line-height:1.55}.warn,.ok2{font-size:18px;line-height:1.65;padding:12px 14px}
+.storageState{font-size:16px}
+@media(max-width:430px){
+  .wrap{padding:10px}.card{padding:17px 14px}.receiptHead{grid-template-columns:1fr 1fr}
+  .dline{flex-wrap:wrap}.dline input[type=date]{margin-left:0;flex:1;min-width:160px}
+  .amt input{font-size:42px}.btns button{font-size:20px}
+}
+
 </style>
 </head>
 <body>
@@ -128,6 +178,7 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
   </div>
 
   <div class="card">
+    <div class="cardTitle" style="margin-bottom:14px">レシートを入力</div>
     <div id="editBox" class="editing hidden"></div>
     <div class="dline">
       <span class="big rnd" id="dShow"></span>
@@ -136,7 +187,7 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
     </div>
     <div class="receiptHead">
       <label>どちらの財布<select id="wallet" onchange="onWallet()"><option value="ie">家</option><option value="haha">母</option></select></label>
-      <label>レシート合計<input id="receiptGoal" inputmode="numeric" placeholder="例 1574" oninput="renderMatch()"></label>
+      <label>レシート合計<input id="receiptGoal" inputmode="numeric" placeholder="例 1,574" oninput="formatMoneyInput(this);renderMatch()"></label>
       <label style="grid-column:1/-1">店舗名<input id="store" placeholder="例 イオン" oninput="renderStoreSuggestions()"></label>
     </div>
     <div id="storeSuggest" class="storeSuggest"></div>
@@ -147,7 +198,7 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
     <div class="amtbox">
       <div class="amt">
         <span class="y rnd">¥</span>
-        <input id="amt" inputmode="numeric" placeholder="">
+        <input id="amt" inputmode="numeric" placeholder="" oninput="formatMoneyInput(this)">
       </div>
       <div class="taxrow">
         <button id="tIn" class="on" onclick="setTax('in')">税込</button>
@@ -166,7 +217,7 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 
   <div class="card">
     <div class="sec">
-      <div class="ttl" style="margin:0">この月の記録　<span id="cnt"></span></div>
+      <div class="cardTitle">この月の記録 <span id="cnt"></span></div>
       <button class="mini" id="allBtn" onclick="toggleAll()">全部見る</button>
     </div>
     <div id="list"></div>
@@ -175,12 +226,12 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 
   <div class="card">
     <div class="sec">
-      <div class="ttl" style="margin:0">費目ごと　／　あといくら</div>
+      <div class="cardTitle">費目ごと ／ あといくら</div>
       <button class="mini" onclick="toggle('setBox')">設定</button>
     </div>
     <div id="bars"></div>
     <div id="setBox" class="hidden" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
-      <div class="ttl">予算と費目</div>
+      <div class="subTitle">予算と費目</div>
       <div id="setList" class="set"></div>
       <div class="row2">
         <input id="newCat" placeholder="新しい費目">
@@ -196,8 +247,8 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 
   <div class="card">
     <div class="sec">
-      <div class="ttl" style="margin:0">月末のデータ出力</div>
-      <button class="mini" onclick="toggle('outBox')">開く</button>
+      <div class="cardTitle">月末のデータ出力</div>
+      <button class="mini" onclick="togglePanel('outBox',this)">開く</button>
     </div>
     <div id="outBox" class="hidden">
       <div class="ok2" style="margin-top:0">普段はここを触らなくてOKです。<br>月末に <b>① CSVを保存 → ② バックアップを保存</b> の順で残してください。</div>
@@ -219,7 +270,11 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
   </div>
 
   <div class="card">
-    <div class="ttl">バックアップ</div>
+    <div class="sec">
+      <div class="cardTitle">バックアップ</div>
+      <button class="mini" onclick="togglePanel('bkBox',this)">開く</button>
+    </div>
+    <div id="bkBox" class="hidden">
     <div id="bkState"></div>
     <div class="btns" style="margin-top:10px">
       <button onclick="backup()">バックアップを出す</button>
@@ -244,13 +299,14 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
       </div>
       <input type="file" id="rf" accept=".json,application/json" class="hidden" onchange="restore(event)">
     </div>
+    </div>
   </div>
 
   <div class="note" style="text-align:center;padding:0 12px">
     普段の記録はこの端末のブラウザ内だけに保存され、外部へ送信しません。
     <div id="storageState" class="storageState">保存領域を確認中…</div>
     <div style="margin-top:4px">月末だけCSVとバックアップJSONを保存してください。</div>
-    <div style="margin-top:4px">家計メモ・レシート手入力 v1.2</div>
+    <div style="margin-top:4px">家計メモ・レシート手入力 v1.3</div>
   </div>
 </div>
 
@@ -286,7 +342,7 @@ var XL={
 var GN={ie:"家",haha:"母"};
 var K={rec:"rk_rec_v4",cat:"rk_cat_v4",bk:"rk_bk_v4"};
 var DB_NAME="kakei_receipt_manual_v1", DB_STORE="state", DB_KEY="main";
-var cats=[],recs=[],month="",tax="in",pick=null,editId=null,showAll=false,receiptId=null,lastBackup=null;
+var cats=[],recs=[],month="",tax="in",pick=null,editId=null,showAll=false,receiptId=null,lastBackup=null,storeExpanded=false;
 
 function openDB(){
   return new Promise(function(resolve,reject){
@@ -384,6 +440,15 @@ function col(c){return COL[c.k]||COL.gray;}
 function findCat(n){for(var i=0;i<cats.length;i++) if(cats[i].n===n) return cats[i];return null;}
 function findRec(id){for(var i=0;i<recs.length;i++) if(recs[i].id===id) return recs[i];return null;}
 function toggle(id){document.getElementById(id).classList.toggle("hidden");}
+function togglePanel(id,btn){
+  var el=document.getElementById(id);
+  el.classList.toggle("hidden");
+  if(btn) btn.textContent=el.classList.contains("hidden")?"開く":"閉じる";
+}
+function formatMoneyInput(el){
+  var digits=String(el.value||"").replace(/[^\d]/g,"");
+  el.value=digits?Number(digits).toLocaleString("ja-JP"):"";
+}
 function toggleAll(){showAll=!showAll;render();}
 function flash(m,cls){
   var f=document.getElementById("flash");
@@ -470,7 +535,7 @@ function edit(id){
   var r=findRec(id); if(!r) return;
   editId=id;pick=findCat(r.c);setTax("in");
   document.getElementById("date").value=r.d;onDate();
-  document.getElementById("amt").value=r.a;
+  document.getElementById("amt").value=Number(r.a||0).toLocaleString("ja-JP");
   document.getElementById("memo").value=r.m||"";
   document.getElementById("itemName").value=r.item||"";
   document.getElementById("store").value=r.store||"";
@@ -784,9 +849,28 @@ function finishReceipt(){
   receiptId=null;document.getElementById("receiptGoal").value="";document.getElementById("store").value="";document.getElementById("itemName").value="";document.getElementById("memo").value="";document.getElementById("amt").value="";pick=null;render();renderMatch();flash("レシート入力を完了しました");
   setTimeout(function(){try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){window.scrollTo(0,0);}},50);
 }
-function knownStores(){var a=[];recs.forEach(function(r){if(r.store&&a.indexOf(r.store)<0)a.push(r.store);});return a.slice(-8).reverse();}
-function renderStoreSuggestions(){var b=document.getElementById("storeSuggest");if(!b)return;var q=document.getElementById("store").value.trim();b.innerHTML=knownStores().filter(function(x){return !q||x.indexOf(q)>=0;}).slice(0,5).map(function(x){return '<button type="button" onclick="chooseStore(\''+q1(x)+'\')">'+esc(x)+'</button>';}).join('');}
-function chooseStore(x){document.getElementById("store").value=x;renderStoreSuggestions();}
+function knownStores(){
+  var a=[];
+  recs.slice().sort(function(x,y){return (y.id||0)-(x.id||0);}).forEach(function(r){
+    var x=(r.store||"").trim();
+    if(x&&a.indexOf(x)<0)a.push(x);
+  });
+  return a;
+}
+function toggleStoreMore(){storeExpanded=!storeExpanded;renderStoreSuggestions();}
+function renderStoreSuggestions(){
+  var b=document.getElementById("storeSuggest");if(!b)return;
+  var q=document.getElementById("store").value.trim();
+  var all=knownStores().filter(function(x){return !q||x.indexOf(q)>=0;});
+  var limit=(q||storeExpanded)?all.length:8;
+  var shown=all.slice(0,limit);
+  var h=shown.map(function(x){return '<button type="button" onclick="chooseStore(\''+q1(x)+'\')">'+esc(x)+'</button>';}).join('');
+  if(!q&&all.length>8){
+    h+='<button type="button" class="more" onclick="toggleStoreMore()">'+(storeExpanded?'閉じる':'もっと見る（'+all.length+'件）')+'</button>';
+  }
+  b.innerHTML=h;
+}
+function chooseStore(x){document.getElementById("store").value=x;storeExpanded=false;renderStoreSuggestions();}
 
 async function init(){
   await load();
