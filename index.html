@@ -114,6 +114,8 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 .matchbox.ok{background:#E7F0E5;color:#436B48}.matchbox.warn{background:#FFF2D8;color:#7C6427}
 #itemName{width:100%;margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:11px;font:inherit}
 .receiptDone{margin-top:8px}.storeSuggest{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.storeSuggest button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 9px;font-size:11px;color:var(--soft)}
+.storageState{margin-top:8px;text-align:center;font-size:11px;color:var(--soft);line-height:1.7}
+.storageState strong{color:var(--exp2)}
 </style>
 </head>
 <body>
@@ -194,10 +196,11 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
 
   <div class="card">
     <div class="sec">
-      <div class="ttl" style="margin:0">データ出力</div>
+      <div class="ttl" style="margin:0">月末のデータ出力</div>
       <button class="mini" onclick="toggle('outBox')">開く</button>
     </div>
     <div id="outBox" class="hidden">
+      <div class="ok2" style="margin-top:0">普段はここを触らなくてOKです。<br>月末に <b>① CSVを保存 → ② バックアップを保存</b> の順で残してください。</div>
       <div class="oh">どの月を出しますか</div>
       <select id="pm" onchange="onPm()"></select>
       <div class="btns"><button onclick="dlMonth()">この月のデータを出す</button></div>
@@ -208,9 +211,9 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
         <button class="alt" onclick="trySave('m')">ファイルで保存</button>
       </div>
       <div class="note">
-        <b>コピー</b>を押して、Googleキープやメールの下書きに貼ってください。<br>
-        パソコンでそれを開いて、家の数字を 2_家の月次 のF〜Q、母の数字を 3_母の月次 のF〜K に貼ります。<br>
-        「ファイルで保存」は動く端末なら使えます。動かなければコピーを使ってください。
+        「この月のデータを出す」でCSVを作ります。<br>
+        <b>ファイルで保存</b>を基本にしてください。iPhone / Androidでは、対応していれば端末の共有・保存画面を開き、非対応ならCSVをダウンロードします。<br>
+        <b>コピー</b>は、ファイル保存がうまくいかない場合の予備です。
       </div>
     </div>
   </div>
@@ -228,8 +231,8 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
       <button class="alt" onclick="trySave('b')">ファイルで保存</button>
     </div>
     <div class="note">
-      月に1回、<b>コピー</b>してGoogleキープに貼っておいてください。<br>
-      それさえあれば、記録が消えても、スマホを変えても全部戻せます。
+      月末に1回、<b>バックアップを出す → ファイルで保存</b>してください。<br>
+      このJSONファイルがあれば、ブラウザの記録が消えたときやスマホを変えたときに復元できます。コピーは予備手段です。
     </div>
 
     <div id="rsBox" class="hidden" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
@@ -244,7 +247,10 @@ textarea{width:100%;height:130px;border:1px solid var(--line);border-radius:10px
   </div>
 
   <div class="note" style="text-align:center;padding:0 12px">
-    記録はこのスマホの中だけに保存されます。どこにも送られません。
+    普段の記録はこの端末のブラウザ内だけに保存され、外部へ送信しません。
+    <div id="storageState" class="storageState">保存領域を確認中…</div>
+    <div style="margin-top:4px">月末だけCSVとバックアップJSONを保存してください。</div>
+    <div style="margin-top:4px">家計メモ・レシート手入力 v1.2</div>
   </div>
 </div>
 
@@ -278,31 +284,94 @@ var XL={
   haha:["施設関係費","電気代","通信費","新聞代","施設以外の医療費","小遣い"]
 };
 var GN={ie:"家",haha:"母"};
-var K={rec:"rk_rec_v3",cat:"rk_cat_v3",bk:"rk_bk_v3"};
-var cats=[],recs=[],month="",tax="in",pick=null,editId=null,showAll=false,receiptId=null;
+var K={rec:"rk_rec_v4",cat:"rk_cat_v4",bk:"rk_bk_v4"};
+var DB_NAME="kakei_receipt_manual_v1", DB_STORE="state", DB_KEY="main";
+var cats=[],recs=[],month="",tax="in",pick=null,editId=null,showAll=false,receiptId=null,lastBackup=null;
 
-function load(){
-  try{
-    var c=localStorage.getItem(K.cat);
-    if(!c){var oldc=localStorage.getItem("rk_cat_v2"),oldr=localStorage.getItem("rk_rec_v2");if(oldc){localStorage.setItem(K.cat,oldc);c=oldc;}if(oldr&&!localStorage.getItem(K.rec))localStorage.setItem(K.rec,oldr);}
-    cats=c?JSON.parse(c):JSON.parse(JSON.stringify(DEF));
-    recs=JSON.parse(localStorage.getItem(K.rec)||"[]");
-    if(!c&&!recs.length){
-      var o1=localStorage.getItem("rk_ie_v1"),o2=localStorage.getItem("rk_haha_v1");
-      if(o1||o2){
-        JSON.parse(o1||"[]").forEach(function(r){recs.push({id:r.id,d:r.d,g:"ie",c:r.c,a:r.a,m:r.m});});
-        JSON.parse(o2||"[]").forEach(function(r){recs.push({id:r.id,d:r.d,g:"haha",c:(r.c==="その他"?"その他（母）":r.c),a:r.a,m:r.m});});
-        saveAll();
-      }
-    }
-  }catch(e){cats=JSON.parse(JSON.stringify(DEF));recs=[];}
+function openDB(){
+  return new Promise(function(resolve,reject){
+    if(!("indexedDB" in window)){reject(new Error("IndexedDB unavailable"));return;}
+    var req=indexedDB.open(DB_NAME,1);
+    req.onupgradeneeded=function(){
+      var db=req.result;
+      if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess=function(){resolve(req.result);};
+    req.onerror=function(){reject(req.error||new Error("DB open error"));};
+  });
 }
-function saveAll(){
+function idbGet(){
+  return openDB().then(function(db){return new Promise(function(resolve,reject){
+    var tx=db.transaction(DB_STORE,"readonly"), req=tx.objectStore(DB_STORE).get(DB_KEY);
+    req.onsuccess=function(){resolve(req.result||null);};
+    req.onerror=function(){reject(req.error);};
+    tx.oncomplete=function(){db.close();};
+  });});
+}
+function idbPut(data){
+  return openDB().then(function(db){return new Promise(function(resolve,reject){
+    var tx=db.transaction(DB_STORE,"readwrite");
+    tx.objectStore(DB_STORE).put(data,DB_KEY);
+    tx.oncomplete=function(){db.close();resolve(true);};
+    tx.onerror=function(){db.close();reject(tx.error);};
+  });});
+}
+function localLegacy(){
+  var c=null,r=null,b=null;
+  var catKeys=[K.cat,"rk_cat_v3","rk_cat_v2"], recKeys=[K.rec,"rk_rec_v3","rk_rec_v2"], bkKeys=[K.bk,"rk_bk_v3","rk_bk_v2"];
+  for(var i=0;i<catKeys.length&&!c;i++) c=localStorage.getItem(catKeys[i]);
+  for(var j=0;j<recKeys.length&&!r;j++) r=localStorage.getItem(recKeys[j]);
+  for(var k=0;k<bkKeys.length&&!b;k++) b=localStorage.getItem(bkKeys[k]);
+  var lc=c?JSON.parse(c):JSON.parse(JSON.stringify(DEF));
+  var lr=r?JSON.parse(r):[];
+  if(!r){
+    var o1=localStorage.getItem("rk_ie_v1"),o2=localStorage.getItem("rk_haha_v1");
+    if(o1||o2){
+      JSON.parse(o1||"[]").forEach(function(x){lr.push({id:x.id,d:x.d,g:"ie",c:x.c,a:x.a,m:x.m});});
+      JSON.parse(o2||"[]").forEach(function(x){lr.push({id:x.id,d:x.d,g:"haha",c:(x.c==="その他"?"その他（母）":x.c),a:x.a,m:x.m});});
+    }
+  }
+  return {cats:lc,recs:lr,lastBackup:b||null};
+}
+async function load(){
+  var state=null;
+  try{state=await idbGet();}catch(e){}
+  if(state&&Array.isArray(state.cats)&&Array.isArray(state.recs)){
+    cats=state.cats; recs=state.recs; lastBackup=state.lastBackup||null;
+  }else{
+    try{
+      var old=localLegacy(); cats=old.cats; recs=old.recs; lastBackup=old.lastBackup;
+    }catch(e){cats=JSON.parse(JSON.stringify(DEF));recs=[];lastBackup=null;}
+    try{await idbPut({ver:4,cats:cats,recs:recs,lastBackup:lastBackup,updatedAt:new Date().toISOString()});}catch(e){}
+  }
+  // 旧localStorageにも予備コピーを残す。既存データ移行にも使う。
   try{
     localStorage.setItem(K.cat,JSON.stringify(cats));
     localStorage.setItem(K.rec,JSON.stringify(recs));
-    return true;
-  }catch(e){flash("保存できませんでした","err");return false;}
+    if(lastBackup)localStorage.setItem(K.bk,lastBackup);
+  }catch(e){}
+}
+function saveAll(){
+  var ok=true;
+  try{
+    localStorage.setItem(K.cat,JSON.stringify(cats));
+    localStorage.setItem(K.rec,JSON.stringify(recs));
+    if(lastBackup)localStorage.setItem(K.bk,lastBackup);
+  }catch(e){ok=false;}
+  idbPut({ver:4,cats:cats,recs:recs,lastBackup:lastBackup,updatedAt:new Date().toISOString()})
+    .catch(function(){flash("端末保存に失敗しました。バックアップを出してください","err");});
+  if(!ok) flash("予備保存に失敗しました","err");
+  return true;
+}
+async function initStorageState(){
+  var el=document.getElementById("storageState");
+  var persisted=false;
+  try{
+    if(navigator.storage&&navigator.storage.persist){persisted=await navigator.storage.persist();}
+  }catch(e){}
+  if(el){
+    el.innerHTML='<strong>保存先：端末内 IndexedDB</strong> ＋ 予備コピー'+(persisted?'（永続保存を許可済み）':'');
+  }
 }
 function yen(n){return "¥"+Math.round(n).toLocaleString("ja-JP");}
 function p2(n){return ("0"+n).slice(-2);}
@@ -548,6 +617,37 @@ function buildPm(){
 }
 function onPm(){ document.getElementById("xlNote").innerHTML=""; }
 function pmVal(){ return document.getElementById("pm").value || month; }
+function toCsv(rows){
+  return "\uFEFF"+rows.map(function(row){
+    return row.map(function(v){
+      var x=String(v==null?"":v);
+      return /[",\r\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x;
+    }).join(",");
+  }).join("\r\n");
+}
+function dl(name,text,mime){
+  var blob=new Blob([text],{type:mime||"application/octet-stream"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  a.href=url;a.download=name;a.style.display="none";
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},3000);
+}
+async function saveOrShareFile(d){
+  var blob=new Blob([d.t],{type:d.m});
+  try{
+    if(typeof File!=="undefined"&&navigator.share&&navigator.canShare){
+      var f=new File([blob],d.n,{type:d.m});
+      if(navigator.canShare({files:[f]})){
+        await navigator.share({files:[f],title:d.n});
+        return "shared";
+      }
+    }
+  }catch(e){
+    if(e&&e.name==="AbortError")return "cancel";
+  }
+  dl(d.n,d.t,d.m); return "download";
+}
 function dlMonth(){
   var k=pmVal(), a=k.split("-");
   var list=recs.filter(function(r){return ym(r.d)===k;});
@@ -564,9 +664,9 @@ function dlMonth(){
     for(var n in by){ if(order.indexOf(n)<0 && by[n]>0) warn.push(GN[g]+"／"+n+" "+yen(by[n])); }
   });
   rows.push(["明細"]);
-  rows.push(["日付","どちらの財布","費目","金額","メモ"]);
+  rows.push(["日付","どちらの財布","費目","金額","店舗名","商品名","メモ"]);
   list.slice().sort(function(x,y){return x.d<y.d?-1:1;}).forEach(function(r){
-    rows.push([r.d,GN[r.g]||"",r.c,r.a,r.m||""]);
+    rows.push([r.d,GN[r.g]||"",r.c,r.a,r.store||"",r.item||"",r.m||""]);
   });
   var txt=toCsv(rows).replace(/^\uFEFF/,"");
   pend.m={n:"家計メモ_"+k.replace("-","")+".csv",t:toCsv(rows),m:"text/csv;charset=utf-8"};
@@ -599,11 +699,14 @@ function copyTa(id){
       function(){flash("枠を長押し→すべて選択→コピー してください","err");});
   }else flash("枠を長押し→すべて選択→コピー してください","err");
 }
-function trySave(k){
+async function trySave(k){
   var d=pend[k];
   if(!d){ flash("先に上のボタンを押してください","err"); return; }
-  try{ dl(d.n,d.t,d.m); flash("保存しました"); }
-  catch(e){ flash("この端末では保存できません。コピーを使ってください","err"); }
+  try{
+    var r=await saveOrShareFile(d);
+    if(r==="shared") flash("共有・保存画面を開きました");
+    else if(r==="download") flash("ファイルを出しました");
+  }catch(e){ flash("ファイルを出せませんでした。コピーを使ってください","err"); }
 }
 function backup(){
   var d=new Date();
@@ -611,8 +714,8 @@ function backup(){
   pend.b={n:"家計メモ_backup_"+d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+".json",
           t:txt,m:"application/json"};
   showTa("bkTa","bkBtns",txt);
-  try{localStorage.setItem(K.bk,today());}catch(e){}
-  bkState();flash("下の枠をコピーして、キープに貼ってください");
+  lastBackup=today();saveAll();
+  bkState();flash("バックアップを作りました。ファイルで保存してください");
 }
 function restoreText(){
   var t=document.getElementById("rsTa").value.trim();
@@ -642,15 +745,14 @@ function applyRestore(raw){
       if(!confirm("いまの記録を置きかえます。\n\nいま：  "+recs.length+"件\nファイル："+nr.length
         +"件（"+when+"）\n\n"+(nr.length<recs.length?"⚠ ファイルのほうが少ないです。古いバックアップかもしれません。\n\n":"")
         +"よろしいですか？")) return;
-      cats=nc;recs=nr;saveAll();
-      try{if(d.at) localStorage.setItem(K.bk,String(d.at).slice(0,10));}catch(e){}
-      render();flash("復元しました（"+nr.length+"件）");
+      cats=nc;recs=nr;
+      if(d.at) lastBackup=String(d.at).slice(0,10);
+      saveAll();render();flash("復元しました（"+nr.length+"件）");
     }catch(e){flash("その内容は読めませんでした","err");}
   }
 }
 function bkState(){
-  var w=document.getElementById("bkState"),last=null;
-  try{last=localStorage.getItem(K.bk);}catch(e){}
+  var w=document.getElementById("bkState"),last=lastBackup;
   if(!last){w.innerHTML='<div class="ok2">バックアップは月に1回でだいじょうぶです。<br>月末にエクセル用を出すとき、ついでに押してください。</div>';return;}
   var days=Math.floor((new Date(today())-new Date(last))/86400000);
   w.innerHTML=days>=30
@@ -679,15 +781,20 @@ function finishReceipt(){
   var goal=parseInt(document.getElementById("receiptGoal").value.replace(/[^\d]/g,""))||0;
   var sum=rows.reduce(function(a,r){return a+r.a;},0);
   if(goal&&goal!==sum&&!confirm("レシート合計と "+yen(Math.abs(goal-sum))+" ずれています。\nこのまま完了しますか？"))return;
-  receiptId=null;document.getElementById("receiptGoal").value="";document.getElementById("store").value="";document.getElementById("itemName").value="";document.getElementById("memo").value="";pick=null;render();renderMatch();flash("レシート入力を完了しました");
+  receiptId=null;document.getElementById("receiptGoal").value="";document.getElementById("store").value="";document.getElementById("itemName").value="";document.getElementById("memo").value="";document.getElementById("amt").value="";pick=null;render();renderMatch();flash("レシート入力を完了しました");
+  setTimeout(function(){try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){window.scrollTo(0,0);}},50);
 }
 function knownStores(){var a=[];recs.forEach(function(r){if(r.store&&a.indexOf(r.store)<0)a.push(r.store);});return a.slice(-8).reverse();}
 function renderStoreSuggestions(){var b=document.getElementById("storeSuggest");if(!b)return;var q=document.getElementById("store").value.trim();b.innerHTML=knownStores().filter(function(x){return !q||x.indexOf(q)>=0;}).slice(0,5).map(function(x){return '<button type="button" onclick="chooseStore(\''+q1(x)+'\')">'+esc(x)+'</button>';}).join('');}
 function chooseStore(x){document.getElementById("store").value=x;renderStoreSuggestions();}
 
-load();
-month=today().slice(0,7);
-setToday();render();onWallet();renderMatch();renderStoreSuggestions();
+async function init(){
+  await load();
+  month=today().slice(0,7);
+  setToday();render();onWallet();renderMatch();renderStoreSuggestions();
+  initStorageState();
+}
+init();
 </script>
 </body>
 </html>
